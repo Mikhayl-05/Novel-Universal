@@ -1,0 +1,365 @@
+/* Chapter Text Styles and Transitions */
+.chapter-content {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 0.4s cubic-bezier(0.25, 1, 0.5, 1), transform 0.4s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+/* Animasi Emosional Profesional */
+.chapter-content.fade-out {
+  opacity: 0;
+  transform: translateY(-15px);
+}
+
+.chapter-content.fade-in {
+  animation: professionalFadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes professionalFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.ch-header {
+  margin-bottom: 1.8rem;
+}
+
+.ch-num {
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 0.3rem;
+  font-weight: 600;
+}
+
+.ch-title {
+  font-family: var(--font-serif);
+  font-size: 1.5rem;
+  font-weight: 500;
+  color: var(--ink);
+  line-height: 1.3;
+  font-style: italic;
+}
+
+.ch-setting {
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-top: 0.4rem;
+  letter-spacing: 0.04em;
+}
+
+/* Prose Formatting */
+.prose {
+  font-family: var(--font-serif);
+  font-size: 1.05rem; /* Dynamic sizing */
+  line-height: 1.9;
+  color: var(--ink);
+}
+
+.prose p {
+  margin-bottom: 1.25rem;
+  text-align: justify;
+}
+
+/* Dropcap style for narrative chapters */
+.prose.has-dropcap p:first-child::first-letter {
+  font-size: 3em;
+  line-height: 0.8;
+  float: left;
+  margin: 0.05em 0.1em 0 0;
+  color: var(--accent);
+  font-family: var(--font-serif);
+  font-weight: 500;
+}
+
+/* Dialogues styling */
+.dialogue {
+  margin: 1.5rem 0;
+  padding: 0.9rem 1.1rem;
+  border-left: 3px solid var(--accent);
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: 0.98rem;
+  line-height: 1.8;
+  color: var(--ink);
+  background: var(--accent-light);
+  border-radius: 0 8px 8px 0;
+}
+
+.dialogue .speaker {
+  display: block;
+  font-style: normal;
+  font-family: var(--font-sans);
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 0.25rem;
+  font-weight: 700;
+}
+
+/* Feeling badges (for Prologue / Story 1) */
+.feeling-badge {
+  display: inline-block;
+  background: var(--accent-light);
+  color: var(--accent);
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.25rem 0.6rem;
+  border-radius: 6px;
+  margin-bottom: 0.8rem;
+  border: 1px dashed var(--accent);
+}
+
+.inner-thought {
+  font-family: var(--font-serif);
+  font-style: italic;
+  color: var(--muted);
+  font-size: 0.95rem;
+  line-height: 1.8;
+  margin: 1.2rem 0;
+  padding: 0 1rem;
+  border-left: 1px dotted var(--rule);
+}
+
+.scene-break {
+  text-align: center;
+  color: var(--accent);
+  margin: 2rem 0;
+  font-size: 1.1rem;
+  letter-spacing: 0.4em;
+}
+
+.flashback-wrap {
+  background: var(--accent-light);
+  border-radius: 8px;
+  padding: 1.1rem 1.3rem;
+  margin: 1.5rem 0;
+  border: 0.5px solid var(--rule);
+}
+
+.flashback-label {
+  font-family: var(--font-sans);
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 0.6rem;
+  font-weight: 700;
+}
+
+
+/* ====================================================
+   SCROLL-TRIGGERED VFX — CSS
+   ==================================================== */
+/* VFX sudah dalam kondisi invisible, menunggu trigger dari scroll */
+.vfx-pending {
+  /* class penanda bahwa chapter ini punya VFX menunggu */
+}
+
+
+/* ====================================================
+   STAGGERED STORY REVEAL SYSTEM (ENTRANCE ANIMATION)
+   ==================================================== */
+/* Keadaan Awal (Sebelum tombol Membuka Kisah diklik) */
+body:not(.studio-mode):not(.story-revealed):not(.story-revealing) header,
+body:not(.studio-mode):not(.story-revealed):not(.story-revealing) .book-meta,
+body:not(.studio-mode):not(.story-revealed):not(.story-revealing) .chapter-content,
+body:not(.studio-mode):not(.story-revealed):not(.story-revealing) .bottom-nav,
+body:not(.studio-mode):not(.story-revealed):not(.story-revealing) #audio-fab {
+  opacity: 0 !important;
+}
+body:not(.studio-mode):not(.story-revealed):not(.story-revealing) header { transform: translateY(-100%) !important; }
+body:not(.studio-mode):not(.story-revealed):not(.story-revealing) .book-meta { transform: translateY(30px) !important; }
+body:not(.studio-mode):not(.story-revealed):not(.story-revealing) .chapter-content { transform: translateY(55px) !important; }
+body:not(.studio-mode):not(.story-revealed):not(.story-revealing) .bottom-nav { transform: translateY(100%) !important; }
+body:not(.studio-mode):not(.story-revealed):not(.story-revealing) #audio-fab { transform: scale(0) !important; }
+
+/* Animasi Reveal Berjenjang Berjalan */
+body.story-revealing header,
+body.story-revealing .book-meta,
+body.story-revealing .chapter-content,
+body.story-revealing .bottom-nav,
+body.story-revealing #audio-fab {
+  opacity: 1 !important;
+  transform: none !important;
+}
+body.story-revealing header {
+  transition: transform 1s cubic-bezier(0.16, 1, 0.3, 1), opacity 1s ease !important;
+  transition-delay: 0.1s !important;
+}
+body.story-revealing .book-meta {
+  transition: transform 1.4s cubic-bezier(0.16, 1, 0.3, 1), opacity 1.4s ease !important;
+  transition-delay: 0.35s !important;
+}
+body.story-revealing .chapter-content {
+  transition: transform 1.6s cubic-bezier(0.16, 1, 0.3, 1), opacity 1.6s ease !important;
+  transition-delay: 0.6s !important;
+}
+body.story-revealing .bottom-nav {
+  transition: transform 1.2s cubic-bezier(0.16, 1, 0.3, 1), opacity 1.2s ease !important;
+  transition-delay: 0.85s !important;
+}
+body.story-revealing #audio-fab {
+  transition: transform 0.8s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.8s ease !important;
+  transition-delay: 1.1s !important;
+}
+
+/* ====================================================
+   FEATURE — FOCUS READING MODE
+   Menyembunyikan semua elemen navigasi, menyisakan
+   hanya konten bab. Mirip Kindle reading experience.
+   ==================================================== */
+body.focus-mode header,
+body.focus-mode .bottom-nav,
+body.focus-mode #audio-fab,
+body.focus-mode .settings-panel,
+body.focus-mode .progress-pill {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.35s ease, transform 0.35s ease;
+}
+body.focus-mode header { transform: translateY(-100%); }
+body.focus-mode .bottom-nav { transform: translateY(100%); }
+body.focus-mode #audio-fab { transform: scale(0.5); }
+
+/* Saat focus mode aktif tapi UI sementara ditampilkan via tap */
+body.focus-mode.focus-ui-visible header,
+body.focus-mode.focus-ui-visible .bottom-nav,
+body.focus-mode.focus-ui-visible #audio-fab {
+  opacity: 1;
+  pointer-events: auto;
+  transform: none;
+}
+
+body.focus-mode main {
+  padding-top: 1.5rem;
+  transition: padding 0.35s ease;
+}
+
+.focus-icon-active { display: none; }
+.focus-icon-inactive { display: block; }
+body.focus-mode .focus-icon-active { display: block; }
+body.focus-mode .focus-icon-inactive { display: none; }
+
+/* ====================================================
+   FEATURE — REDUCE MOTION MODE
+   Mematikan animasi berat (VFX, particle, cinematic)
+   sambil tetap menyisakan fade dasar untuk aksesibilitas.
+   ==================================================== */
+body.reduce-motion #vfx-layer,
+body.reduce-motion .ending-cin-particles {
+  display: none !important;
+}
+body.reduce-motion .shimmer-text {
+  animation: none !important;
+  -webkit-text-fill-color: var(--ink);
+  background: none !important;
+}
+body.reduce-motion .ending-badge,
+body.reduce-motion .ending-tbc-text,
+body.reduce-motion .ending-bg-glow,
+body.reduce-motion .loading-ornament {
+  animation: none !important;
+}
+body.reduce-motion .chapter-content.fade-in {
+  animation: none !important;
+  opacity: 1 !important;
+  transform: none !important;
+}
+body.reduce-motion .chapter-content,
+body.reduce-motion .chapter-content.fade-out {
+  transition: opacity 0.25s ease !important;
+  transform: none !important;
+}
+body.reduce-motion .drawer-item,
+body.reduce-motion .control-btn,
+body.reduce-motion .nav-btn,
+body.reduce-motion .ending-contact-card {
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease !important;
+  transform: none !important;
+}
+/* Hormati preferensi OS: matikan animasi non-esensial secara otomatis */
+@media (prefers-reduced-motion: reduce) {
+  #vfx-layer, .ending-cin-particles { display: none !important; }
+  .chapter-content.fade-in { animation: none !important; opacity: 1 !important; }
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.15s !important;
+  }
+}
+
+/* Highlight scroll-target sesaat setelah lompat ke paragraf hasil pencarian */
+.para-highlight-flash {
+  animation: paraHighlightFlash 1.8s ease;
+}
+@keyframes paraHighlightFlash {
+  0% { background: var(--accent-light); }
+  100% { background: transparent; }
+}
+body.reduce-motion .para-highlight-flash { animation: none; background: var(--accent-light); }
+
+/* Novel Studio custom blocks rendering in public Reader & Live Preview */
+.reader-page-break {
+  height: 1px;
+  border-top: 1px dashed var(--rule);
+  margin: 2.2rem auto;
+  width: 45%;
+}
+
+.novel-image-block {
+  margin: 1.75rem 0;
+  text-align: center;
+}
+.novel-image-block img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  border: 1px solid var(--rule);
+}
+.novel-image-block figcaption {
+  margin-top: 0.5rem;
+  font-family: var(--font-sans);
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-style: italic;
+}
+
+.novel-narrative-card {
+  background: var(--accent-light);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 1.1rem 1.3rem;
+  margin: 1.5rem 0;
+}
+.novel-narrative-card-label {
+  font-family: var(--font-sans);
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 0.6rem;
+  font-weight: 700;
+}
+
+.novel-chapter-marker {
+  margin: 2rem 0 1.4rem;
+  padding-top: 1.2rem;
+  border-top: 1px solid var(--rule);
+}
+
+.novel-sfx-cue,
+.novel-vfx-cue,
+.novel-bgm-cue {
+  display: none;
+}
+
+

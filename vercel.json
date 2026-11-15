@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/((?!asset/|audio/|icons/|assets/|manifest\\.json|service-worker\\.js|index\\.legacy\\.html).*)",
+      "destination": "/index.html"
+    }
+  ]
+}

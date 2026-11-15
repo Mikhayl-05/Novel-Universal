@@ -1,0 +1,85 @@
+:root {
+  /* Light Mode Variables */
+  --bg-cream: #faf8f4;
+  --bg-card: #ffffff;
+  --ink: #1a1814;
+  --muted: #7a7570;
+  --accent: #c97d5a;
+  --accent-light: #f5ece5;
+  --accent-hover: #b36846;
+  --rule: rgba(26, 24, 20, 0.12);
+  --font-serif: 'Lora', Georgia, serif;
+  --font-sans: 'DM Sans', sans-serif;
+  --shadow: 0 4px 20px rgba(0,0,0,0.04);
+  --btn-active-bg: #c97d5a;
+  --btn-active-text: #ffffff;
+}
+
+/* Dark Mode Override */
+[data-theme="dark"] {
+  --bg-cream: #12110f;
+  --bg-card: #1c1a17;
+  --ink: #eadecc;
+  --muted: #969089;
+  --accent: #e0926d;
+  --accent-light: #2c241c;
+  --accent-hover: #f0a581;
+  --rule: rgba(234, 222, 204, 0.15);
+  --shadow: 0 4px 20px rgba(0,0,0,0.3);
+  --btn-active-bg: #e0926d;
+  --btn-active-text: #12110f;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  background-color: var(--bg-cream);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  transition: background-color 0.3s ease, color 0.3s ease;
+  line-height: 1.6;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ====================================================
+   FEATURE — MATIKAN VISUAL SELEKSI TEKS (highlight biru)
+   Diterapkan secara universal ke semua elemen (*) agar tidak
+   ada celah elemen yang masih menampilkan selection biru,
+   baik di mobile maupun desktop.
+   -webkit-touch-callout dimatikan agar popup "Copy/Look Up"
+   iOS tidak muncul saat long-press paragraf.
+   Input & textarea dikecualikan supaya tetap bisa diketik
+   dan diseleksi seperti biasa.
+   ==================================================== */
+* {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+input,
+textarea,
+[contenteditable="true"],
+[contenteditable="true"] *,
+.studio-allow-select,
+.studio-allow-select * {
+  -webkit-user-select: text !important;
+  -moz-user-select: text !important;
+  -ms-user-select: text !important;
+  user-select: text !important;
+  -webkit-touch-callout: default !important;
+}
+
+/* Transparankan semua selection highlight browser */
+*::selection     { background: transparent !important; color: inherit; }
+*::-moz-selection{ background: transparent !important; color: inherit; }
+

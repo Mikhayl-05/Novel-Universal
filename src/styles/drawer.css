@@ -1,0 +1,341 @@
+/* Quick Index Sidebar/Drawer */
+.chapter-drawer {
+  position: fixed;
+  top: 0;
+  left: -100%;
+  width: 85%;
+  max-width: 320px;
+  height: 100%;
+  background: var(--bg-card);
+  z-index: 200;
+  box-shadow: 4px 0 24px rgba(0,0,0,0.15);
+  transition: left 0.3s ease-in-out;
+  display: flex;
+  flex-direction: column;
+}
+
+.chapter-drawer.open {
+  left: 0;
+}
+
+.drawer-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0,0,0,0.5);
+  z-index: 150;
+  display: none;
+}
+
+.drawer-overlay.visible {
+  display: block;
+}
+
+.drawer-header {
+  padding: 1.2rem 1rem;
+  border-bottom: 1px solid var(--rule);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.drawer-title {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.drawer-close {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.drawer-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1rem 0.5rem;
+}
+
+/* Sidebar Control Section (Search & Tabs) */
+.drawer-controls {
+  padding: 0.8rem 1rem 0.5rem;
+  border-bottom: 1px solid var(--rule);
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  background: var(--bg-card);
+}
+
+.drawer-search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  background: var(--bg-cream);
+  border: 1px solid var(--rule);
+  border-radius: 20px;
+  padding: 0.4rem 0.8rem;
+  transition: all 0.3s ease;
+}
+
+.drawer-search-wrap:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-light);
+}
+
+.drawer-search-wrap .search-icon {
+  color: var(--muted);
+  margin-right: 0.5rem;
+  transition: color 0.3s ease;
+}
+
+.drawer-search-wrap:focus-within .search-icon {
+  color: var(--accent);
+}
+
+.drawer-search-wrap input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 0.82rem;
+  outline: none;
+  width: 100%;
+}
+
+.drawer-search-wrap input::placeholder {
+  color: var(--muted);
+  opacity: 0.85;
+}
+
+#drawer-search-clear {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 1.1rem;
+  cursor: pointer;
+  padding: 0 0.2rem;
+  transition: color 0.2s ease;
+}
+
+#drawer-search-clear:hover {
+  color: var(--accent);
+}
+
+.drawer-tabs {
+  display: flex;
+  gap: 0.4rem;
+  background: var(--bg-cream);
+  padding: 0.25rem;
+  border-radius: 12px;
+}
+
+.drawer-tabs .tab-btn {
+  flex: 1;
+  border: none;
+  background: transparent;
+  padding: 0.4rem 0.6rem;
+  border-radius: 8px;
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--muted);
+  transition: all 0.25s cubic-bezier(0.25, 0.8, 0.25, 1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+}
+
+.drawer-tabs .tab-btn:hover {
+  color: var(--ink);
+  background: rgba(0, 0, 0, 0.03);
+}
+
+[data-theme="dark"] .drawer-tabs .tab-btn:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.drawer-tabs .tab-btn.active {
+  background: var(--bg-card);
+  color: var(--accent);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+[data-theme="dark"] .drawer-tabs .tab-btn.active {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.fav-count-badge {
+  background: var(--accent-light);
+  color: var(--accent);
+  font-size: 0.65rem;
+  padding: 0.05rem 0.35rem;
+  border-radius: 8px;
+  font-weight: 700;
+  min-width: 14px;
+  text-align: center;
+  transition: all 0.3s ease;
+}
+
+.drawer-tabs .tab-btn.active .fav-count-badge {
+  background: var(--accent);
+  color: var(--btn-active-text);
+}
+
+/* Long-press & Heart Visual styling inside list items */
+.drawer-item {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  text-align: left;
+  padding: 0.75rem 0.8rem;
+  border: none;
+  background: none;
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--ink);
+  margin-bottom: 0.25rem;
+  position: relative;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275), background 0.2s ease, border-color 0.2s ease;
+}
+
+.drawer-item:active:not(.active) {
+  transform: scale(0.97);
+}
+
+.drawer-item:hover {
+  background: var(--accent-light);
+}
+
+.drawer-item.active {
+  background: var(--accent);
+  color: var(--btn-active-text);
+}
+
+.drawer-item .ch-num-lbl {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.8;
+  margin-bottom: 0.15rem;
+}
+
+.drawer-item .ch-title-lbl {
+  font-family: var(--font-serif);
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.drawer-item .fav-indicator {
+  position: absolute;
+  right: 0.8rem;
+  top: 50%;
+  transform: translateY(-50%) scale(0);
+  color: #ff4b72;
+  opacity: 0;
+  transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  pointer-events: none;
+}
+
+.drawer-item.is-fav .fav-indicator {
+  transform: translateY(-50%) scale(1);
+  opacity: 1;
+}
+
+.drawer-item.is-fav {
+  padding-right: 2.2rem;
+}
+
+.drawer-item .press-progress {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  width: 0%;
+  background: linear-gradient(90deg, #ff6f91, #ff4b72);
+  transition: width 0.8s linear;
+  pointer-events: none;
+}
+
+.drawer-item.pressing .press-progress {
+  width: 100%;
+}
+
+.drawer-empty-state {
+  padding: 2.5rem 1rem;
+  text-align: center;
+  font-family: var(--font-sans);
+  color: var(--muted);
+  font-size: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
+  animation: fadeIn 0.4s ease;
+}
+
+.drawer-empty-state svg {
+  color: var(--muted);
+  opacity: 0.5;
+}
+
+
+/* Custom scrollbar for Chapter Drawer */
+.drawer-list::-webkit-scrollbar {
+  width: 4px;
+}
+.drawer-list::-webkit-scrollbar-thumb {
+  background: var(--rule);
+  border-radius: 4px;
+}
+
+
+/* ====================================================
+   FEATURE — FULL TEXT SEARCH (snippet & highlight)
+   ==================================================== */
+.search-snippet {
+  display: block;
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: 0.76rem;
+  line-height: 1.55;
+  color: var(--muted);
+  margin-top: 0.3rem;
+}
+.search-snippet mark {
+  background: var(--accent-light);
+  color: var(--accent);
+  font-style: normal;
+  font-weight: 700;
+  padding: 0 2px;
+  border-radius: 3px;
+}
+
+/* Tombol akses tambahan di header drawer (mis. Peta Hubungan) */
+.drawer-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.drawer-header-btn {
+  background: none;
+  border: none;
+  font-size: 1.05rem;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--muted);
+  transition: color 0.2s ease, transform 0.2s ease;
+}
+.drawer-header-btn:hover { color: var(--accent); transform: scale(1.1); }
+

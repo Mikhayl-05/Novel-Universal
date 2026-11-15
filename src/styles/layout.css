@@ -1,0 +1,541 @@
+/* Header & Navigation Bar */
+header {
+  position: sticky;
+  top: 0;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--rule);
+  z-index: 100;
+  box-shadow: var(--shadow);
+  transition: background-color 0.3s, border-color 0.3s;
+}
+
+.header-container {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 0.8rem 1rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.header-left-group {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-width: 0;
+  flex: 1;
+  margin-right: 0.5rem;
+}
+
+.header-back-home {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  padding: 0.34rem 0.62rem;
+  border-radius: 8px;
+  border: 1px solid var(--rule);
+  background: transparent;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 0.78rem;
+  font-weight: 500;
+  flex-shrink: 0;
+  transition: border-color 0.2s ease, color 0.2s ease, background-color 0.2s ease;
+}
+
+.header-back-home:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-light);
+}
+
+@media (max-width: 520px) {
+  .header-back-label {
+    display: none;
+  }
+}
+
+.brand {
+  font-family: var(--font-serif);
+  font-size: 1.05rem;
+  font-weight: 600;
+  font-style: italic;
+  color: var(--accent);
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.controls-right {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.control-btn {
+  background: none;
+  border: 1px solid var(--rule);
+  border-radius: 50%;
+  width: 38px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.control-btn:hover {
+  background: var(--accent-light);
+  border-color: var(--accent);
+}
+
+/* Floating Navigation Hub (Bottom Bar on Mobile) */
+.bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--bg-card);
+  border-top: 1px solid var(--rule);
+  padding: 0.75rem 1rem;
+  z-index: 99;
+  box-shadow: 0 -4px 20px rgba(0,0,0,0.08);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.bottom-container {
+  max-width: 720px;
+  width: 100%;
+  margin: 0 auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.nav-btn {
+  font-family: var(--font-sans);
+  font-size: 0.85rem;
+  font-weight: 500;
+  padding: 0.5rem 1rem;
+  border-radius: 20px;
+  border: 1px solid var(--rule);
+  background: var(--bg-card);
+  color: var(--ink);
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.nav-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.nav-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.progress-indicator-text {
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.reader-single-footer {
+  margin-top: 3rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--rule);
+  text-align: center;
+}
+
+.reader-return-beranda {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.reader-return-beranda:hover {
+  text-decoration: underline;
+}
+
+.reader-state-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  background: var(--bg-cream);
+  color: var(--ink);
+}
+
+.reader-state-card {
+  max-width: 460px;
+  width: 100%;
+  background: var(--bg-card);
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  padding: 2rem;
+  text-align: center;
+  box-shadow: var(--shadow);
+}
+
+.reader-state-card h2 {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: 1.3rem;
+  margin-bottom: 0.5rem;
+}
+
+.reader-state-card p {
+  font-size: 0.88rem;
+  color: var(--muted);
+  line-height: 1.6;
+  margin-bottom: 1.25rem;
+}
+
+/* Main Reader Layout */
+main {
+  flex: 1;
+  max-width: 680px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 1.5rem 1rem 6rem;
+}
+
+    /* Book Info Header Block */
+.book-meta {
+  text-align: center;
+  padding: 1.5rem 0 2rem;
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 2rem;
+  position: relative;
+  transition: all 0.8s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+/* Background atmospheric glows for sections */
+.book-meta::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 20px;
+  z-index: -1;
+  opacity: 0;
+  filter: blur(24px);
+  transition: opacity 1.2s cubic-bezier(0.25, 1, 0.5, 1), background-image 1.2s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.book-meta.theme-prologue::before {
+  background-image: radial-gradient(circle, rgba(201, 125, 90, 0.09) 0%, rgba(201, 125, 90, 0) 70%);
+  opacity: 1;
+}
+
+.book-meta.theme-main::before {
+  background-image: radial-gradient(circle, rgba(224, 146, 109, 0.09) 0%, rgba(224, 146, 109, 0) 70%);
+  opacity: 1;
+}
+
+.book-title {
+  font-family: var(--font-serif);
+  font-size: 1.8rem;
+  font-weight: 500;
+  color: var(--ink);
+  line-height: 1.3;
+  margin-bottom: 0.5rem;
+  font-style: italic;
+  transition: color 0.8s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.book-meta.theme-prologue .book-title {
+  color: var(--accent); /* Highlight title slightly in Prologue */
+}
+
+.book-subtitle {
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-top: 0.5rem;
+  display: inline-block;
+  transition: opacity 0.4s cubic-bezier(0.25, 1, 0.5, 1), transform 0.4s cubic-bezier(0.25, 1, 0.5, 1), letter-spacing 0.8s cubic-bezier(0.25, 1, 0.5, 1), color 0.8s ease;
+}
+
+.book-subtitle.transitioning {
+  opacity: 0;
+  transform: translateY(-8px) scale(0.95);
+  letter-spacing: 0.25em;
+}
+
+.book-meta.theme-prologue .book-subtitle {
+  color: #b36846;
+  font-weight: 600;
+}
+
+.book-meta.theme-main .book-subtitle {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.ornament {
+  color: var(--accent);
+  font-size: 1.2rem;
+  margin: 0.5rem 0;
+  display: inline-block;
+  transition: transform 0.8s cubic-bezier(0.34, 1.56, 0.64, 1), color 0.8s ease;
+}
+
+.book-meta.theme-prologue .ornament {
+  transform: rotate(180deg) scale(1.15);
+  color: #b36846;
+}
+
+.book-meta.theme-main .ornament {
+  transform: rotate(0deg) scale(1);
+  color: var(--accent);
+}
+
+
+/* Quick settings panel: Font size, Reduce Motion, Quick Actions */
+.settings-panel {
+  position: fixed;
+  bottom: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-card);
+  border: 1px solid var(--rule);
+  border-radius: 14px;
+  padding: 0.9rem 1.2rem;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.12);
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  min-width: 230px;
+  z-index: 101;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.settings-panel.visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(-50%) translateY(-5px);
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.settings-row + .settings-row {
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--rule);
+}
+
+.settings-row-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.settings-label {
+  font-size: 0.8rem;
+  color: var(--muted);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.font-size-btn {
+  background: none;
+  border: 1px solid var(--rule);
+  color: var(--ink);
+  padding: 0.3rem 0.6rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.font-size-btn:hover {
+  border-color: var(--accent);
+}
+
+/* Toggle switch (Reduce Motion, etc) */
+.settings-toggle {
+  position: relative;
+  display: inline-block;
+  width: 38px;
+  height: 22px;
+  flex-shrink: 0;
+}
+.settings-toggle input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.settings-toggle-slider {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  background: var(--rule);
+  border-radius: 22px;
+  transition: background 0.25s ease;
+}
+.settings-toggle-slider::before {
+  content: '';
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  left: 3px;
+  bottom: 3px;
+  background: var(--bg-card);
+  border-radius: 50%;
+  transition: transform 0.25s ease;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+.settings-toggle input:checked + .settings-toggle-slider {
+  background: var(--accent);
+}
+.settings-toggle input:checked + .settings-toggle-slider::before {
+  transform: translateX(16px);
+}
+.settings-toggle input:focus-visible + .settings-toggle-slider {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Reader Command Center quick action buttons */
+.quick-action-buttons {
+  display: flex;
+  gap: 0.4rem;
+}
+.quick-action-btn {
+  background: var(--accent-light);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  width: 32px;
+  height: 32px;
+  font-size: 0.95rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+.quick-action-btn:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+.quick-action-btn.active-state {
+  background: var(--accent);
+}
+
+/* Toast notification */
+.toast {
+  position: fixed;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%) translateY(-50px);
+  background: var(--ink);
+  color: var(--bg-cream);
+  padding: 0.6rem 1.2rem;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  z-index: 999;
+  opacity: 0;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.toast.show {
+  opacity: 0.95;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* ====================================================
+   FEATURE — BOTTOM HINT (notifikasi swipe Focus Mode)
+   Muncul di bagian bawah layar saat Focus Mode diaktifkan,
+   memberitahu pembaca bahwa swipe kiri/kanan untuk pindah
+   bab sudah aktif.
+   ==================================================== */
+.bottom-hint {
+  position: fixed;
+  bottom: max(24px, env(safe-area-inset-bottom));
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: var(--ink);
+  color: var(--bg-cream);
+  padding: 0.65rem 1.1rem;
+  border-radius: 20px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  text-align: center;
+  max-width: 86%;
+  z-index: 998;
+  opacity: 0;
+  pointer-events: none;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.bottom-hint.show {
+  opacity: 0.95;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* CSS for simple divider in HTML end of some content */
+.divider {
+  border: none;
+  border-top: 1px solid var(--rule);
+  margin: 1.5rem 0;
+}
+
+
+/* --- Floating Audio FAB Button --- */
+.audio-fab {
+  position: fixed;
+  bottom: 76px;
+  right: 16px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--bg-card);
+  border: 1px solid var(--rule);
+  box-shadow: 0 2px 14px rgba(0,0,0,0.13);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 102;
+  transition: all 0.2s ease;
+  color: var(--muted);
+  padding: 0;
+}
+.audio-fab:hover {
+  background: var(--accent-light);
+  border-color: var(--accent);
+  color: var(--accent);
+  transform: scale(1.08);
+}
+.audio-fab.muted {
+  opacity: 0.45;
+}
+.audio-fab svg {
+  pointer-events: none;
+}
+
