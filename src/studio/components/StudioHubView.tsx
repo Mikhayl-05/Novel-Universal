@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import {
   BookOpen,
+  Check,
   ExternalLink,
   FolderPlus,
   Loader2,
@@ -11,13 +12,24 @@ import {
   Search,
   Settings,
   Sun,
+  X,
 } from 'lucide-react';
 import type { WorkType } from '../../types/novel';
 import type { NovelStatus, StudioNovelSummary } from '../types/studio';
+import {
+  computeHubWritingStats,
+  loadDailyWordTarget,
+  MAX_DAILY_WORD_TARGET,
+  MIN_DAILY_WORD_TARGET,
+  saveDailyWordTarget,
+  syncDailyWritingProgress,
+} from '../utils/writingStats';
 
 interface StudioHubViewProps {
   works: StudioNovelSummary[];
   loading: boolean;
+  statsLoaded: boolean;
+  userKey?: string | null;
   userEmail?: string | null;
   studioTheme: 'dark' | 'light';
   onToggleTheme: () => void;
@@ -52,6 +64,8 @@ function formatShortDate(iso: string): string {
 export function StudioHubView({
   works,
   loading,
+  statsLoaded,
+  userKey,
   userEmail,
   studioTheme,
   onToggleTheme,
@@ -63,6 +77,43 @@ export function StudioHubView({
   const [typeFilter, setTypeFilter] = useState<'all' | WorkType>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | NovelStatus>('all');
   const [searchQuery, setSearchQuery] = useState('');
+
+  const [dailyTarget, setDailyTarget] = useState<number>(() =>
+    loadDailyWordTarget(userKey),
+  );
+  const [editingTarget, setEditingTarget] = useState(false);
+  const [targetInput, setTargetInput] = useState(() => String(dailyTarget));
+
+  useEffect(() => {
+    const loaded = loadDailyWordTarget(userKey);
+    setDailyTarget(loaded);
+    setTargetInput(String(loaded));
+  }, [userKey]);
+
+  const hubStats = useMemo(() => computeHubWritingStats(works), [works]);
+
+  const dailyProgress = useMemo(() => {
+    if (!statsLoaded) {
+      return { date: '', baselineWords: 0, wordsToday: 0 };
+    }
+    return syncDailyWritingProgress(hubStats.totalWords, { userKey });
+  }, [hubStats.totalWords, statsLoaded, userKey]);
+
+  const targetPercent =
+    dailyTarget > 0
+      ? Math.min(100, Math.round((dailyProgress.wordsToday / dailyTarget) * 100))
+      : 0;
+  const remainingWords = Math.max(0, dailyTarget - dailyProgress.wordsToday);
+  const isTargetReached = statsLoaded && dailyProgress.wordsToday >= dailyTarget;
+
+  const handleSaveTarget = (e: FormEvent) => {
+    e.preventDefault();
+    const numeric = Number(targetInput);
+    const saved = saveDailyWordTarget(numeric, userKey);
+    setDailyTarget(saved);
+    setTargetInput(String(saved));
+    setEditingTarget(false);
+  };
 
   const filteredWorks = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -156,6 +207,133 @@ export function StudioHubView({
               Kelola Novel berseri, Cerpen utuh, dan Notes dalam satu ruang kerja.
               Pilih proyek untuk langsung melanjutkan bab terakhir yang dikerjakan.
             </p>
+          </section>
+
+          <section className="studio-hub-stats" aria-label="Ringkasan statistik penulisan">
+            <div className="studio-hub-stat-card">
+              <div className="studio-hub-stat-head">
+                <span className="studio-hub-stat-label">Total Kata</span>
+              </div>
+              <div className="studio-hub-stat-value tabular-nums">
+                {statsLoaded ? hubStats.totalWords.toLocaleString('id-ID') : '—'}
+              </div>
+              <p className="studio-hub-stat-sub tabular-nums">
+                {statsLoaded
+                  ? `dari ${hubStats.totalChapters.toLocaleString('id-ID')} bagian naskah`
+                  : 'Menghitung total naskah…'}
+              </p>
+            </div>
+
+            <div className="studio-hub-stat-card">
+              <div className="studio-hub-stat-head">
+                <span className="studio-hub-stat-label">Proyek Aktif</span>
+              </div>
+              <div className="studio-hub-stat-value tabular-nums">
+                {statsLoaded
+                  ? hubStats.activeProjectsCount.toLocaleString('id-ID')
+                  : '—'}
+              </div>
+              <p className="studio-hub-stat-sub tabular-nums">
+                {statsLoaded
+                  ? `${hubStats.publishedProjectsCount} terbit · ${hubStats.draftProjectsCount} draf${
+                      hubStats.archivedProjectsCount > 0
+                        ? ` · ${hubStats.archivedProjectsCount} arsip`
+                        : ''
+                    }`
+                  : 'Memuat status proyek…'}
+              </p>
+            </div>
+
+            <div className="studio-hub-stat-card studio-hub-stat-target">
+              <div className="studio-hub-stat-head">
+                <span className="studio-hub-stat-label">Target Harian</span>
+                {!editingTarget && (
+                  <button
+                    type="button"
+                    className="studio-hub-target-btn"
+                    onClick={() => {
+                      setTargetInput(String(dailyTarget));
+                      setEditingTarget(true);
+                    }}
+                  >
+                    <PenLine size={12} />
+                    <span>Ubah</span>
+                  </button>
+                )}
+              </div>
+
+              {editingTarget ? (
+                <form className="studio-hub-target-form" onSubmit={handleSaveTarget}>
+                  <label className="studio-hub-target-input-wrap">
+                    <input
+                      type="number"
+                      min={MIN_DAILY_WORD_TARGET}
+                      max={MAX_DAILY_WORD_TARGET}
+                      step={50}
+                      aria-label="Target kata harian"
+                      value={targetInput}
+                      onChange={(e) => setTargetInput(e.target.value)}
+                      autoFocus
+                    />
+                    <span>kata/hari</span>
+                  </label>
+                  <div className="studio-hub-target-form-actions">
+                    <button
+                      type="submit"
+                      className="studio-btn studio-btn-primary studio-btn-sm"
+                      aria-label="Simpan target harian"
+                    >
+                      <Check size={13} />
+                      <span>Simpan</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="studio-btn studio-btn-secondary studio-btn-sm"
+                      aria-label="Batal ubah target"
+                      onClick={() => {
+                        setTargetInput(String(dailyTarget));
+                        setEditingTarget(false);
+                      }}
+                    >
+                      <X size={13} />
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <>
+                  <div className="studio-hub-stat-value tabular-nums">
+                    {statsLoaded
+                      ? `${dailyProgress.wordsToday.toLocaleString('id-ID')} / ${dailyTarget.toLocaleString('id-ID')}`
+                      : `— / ${dailyTarget.toLocaleString('id-ID')}`}
+                    <span className="studio-hub-stat-unit"> kata</span>
+                  </div>
+
+                  <div
+                    className="studio-hub-progress-track"
+                    role="progressbar"
+                    aria-label="Progres target penulisan harian"
+                    aria-valuemin={0}
+                    aria-valuemax={dailyTarget}
+                    aria-valuenow={dailyProgress.wordsToday}
+                  >
+                    <div
+                      className={`studio-hub-progress-fill${
+                        isTargetReached ? ' is-complete' : ''
+                      }`}
+                      style={{ width: `${statsLoaded ? targetPercent : 0}%` }}
+                    />
+                  </div>
+
+                  <p className="studio-hub-stat-sub tabular-nums">
+                    {!statsLoaded
+                      ? 'Menyiapkan progres hari ini…'
+                      : isTargetReached
+                        ? `Target hari ini tercapai (${targetPercent}%)`
+                        : `${targetPercent}% tercapai · sisa ${remainingWords.toLocaleString('id-ID')} kata`}
+                  </p>
+                </>
+              )}
+            </div>
           </section>
 
           <section className="studio-hub-controls" aria-label="Filter daftar karya">
@@ -288,6 +466,8 @@ export function StudioHubView({
                           </span>
                           <span>·</span>
                           <span>{work.chapterCount} bagian</span>
+                          <span>·</span>
+                          <span>{work.wordCount.toLocaleString('id-ID')} kata</span>
                         </p>
 
                         <h2 className="studio-hub-card-title">

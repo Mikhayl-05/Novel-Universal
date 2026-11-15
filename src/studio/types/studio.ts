@@ -58,6 +58,7 @@ export interface StudioNovelSummary extends StudioNovel {
   chapterCount: number;
   publishedCount: number;
   draftCount: number;
+  wordCount: number;
   latestChapterId: string | null;
   latestChapterNum: string | null;
   latestChapterTitle: string | null;

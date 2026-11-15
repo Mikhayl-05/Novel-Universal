@@ -97,12 +97,18 @@ function toSummaryFromNovel(
   novel: StudioNovel,
   chapterList: StudioChapter[] = [],
 ): StudioNovelSummary {
-  const latest = chapterList[chapterList.length - 1] ?? null;
+  const activeChapters = chapterList.filter((c) => c.status !== 'archived');
+  const latest = activeChapters[activeChapters.length - 1] ?? null;
+  const wordCount = activeChapters.reduce(
+    (sum, ch) => sum + extractDocumentMetrics(ch.draftDoc).wordCount,
+    0,
+  );
   return {
     ...novel,
-    chapterCount: chapterList.length,
-    publishedCount: chapterList.filter((c) => c.status === 'published').length,
-    draftCount: chapterList.filter((c) => c.status === 'draft').length,
+    chapterCount: activeChapters.length,
+    publishedCount: activeChapters.filter((c) => c.status === 'published').length,
+    draftCount: activeChapters.filter((c) => c.status === 'draft').length,
+    wordCount,
     latestChapterId: latest?.id ?? null,
     latestChapterNum: latest?.num ?? null,
     latestChapterTitle: latest?.title ?? null,
@@ -126,6 +132,7 @@ export function NovelStudioPage() {
   const [studioScreen, setStudioScreen] = useState<'hub' | 'workspace'>('hub');
   const [novels, setNovels] = useState<StudioNovelSummary[]>([]);
   const [loadingHub, setLoadingHub] = useState(false);
+  const [hubLoaded, setHubLoaded] = useState(false);
 
   const [activeNovelId, setActiveNovelId] = useState<string | null>(null);
   const [chapters, setChapters] = useState<StudioChapter[]>([]);
@@ -440,6 +447,7 @@ export function NovelStudioPage() {
     try {
       const list = await fetchNovelsWithStats();
       setNovels(list);
+      setHubLoaded(true);
     } catch (err) {
       showNotice(
         err instanceof Error ? err.message : 'Gagal memuat daftar karya.',
@@ -453,6 +461,7 @@ export function NovelStudioPage() {
   useEffect(() => {
     if (auth.status !== 'authenticated') {
       setNovels([]);
+      setHubLoaded(false);
       commitChaptersState([]);
       setActiveNovelId(null);
       setActiveChapterId(null);
@@ -466,6 +475,7 @@ export function NovelStudioPage() {
       .then((list) => {
         if (!cancelled) {
           setNovels(list);
+          setHubLoaded(true);
         }
       })
       .catch((err) => {
@@ -1041,6 +1051,13 @@ export function NovelStudioPage() {
         <StudioHubView
           works={novels}
           loading={loadingHub}
+          statsLoaded={hubLoaded}
+          userKey={
+            auth.adminProfile?.userId ??
+            auth.user?.id ??
+            auth.adminProfile?.email ??
+            null
+          }
           userEmail={auth.adminProfile?.email}
           studioTheme={studioTheme}
           onToggleTheme={toggleStudioTheme}

@@ -13,14 +13,28 @@ import type {
   TiptapDocJson,
   VfxTriggerMode,
 } from '../types/studio';
+import { stripHtmlToText } from '../../utils/chapterHtml';
 import {
   EMPTY_TIPTAP_DOC,
+  extractDocumentMetrics,
   parseLegacyHtmlToTiptapDoc,
   serializeTiptapDocToReaderHtml,
 } from '../utils/novelContentCodec';
 import { getSupabaseClient, requireSupabaseClient } from './supabaseClient';
 
 const STORAGE_BUCKET = 'novel-assets';
+
+function countWordsFromDraftRow(
+  draftDoc: TiptapDocJson | null | undefined,
+  draftHtml: string | null | undefined,
+): number {
+  if (draftDoc && draftDoc.type === 'doc') {
+    return extractDocumentMetrics(draftDoc).wordCount;
+  }
+  if (!draftHtml) return 0;
+  const text = stripHtmlToText(draftHtml);
+  return text ? text.split(/\s+/).filter(Boolean).length : 0;
+}
 
 interface DbNovelRow {
   id: string;
@@ -361,7 +375,7 @@ export async function fetchNovelsWithStats(): Promise<StudioNovelSummary[]> {
 
   const { data: chapterRows, error: chErr } = await supabase
     .from('chapters')
-    .select('id, novel_id, status, num, title, updated_at')
+    .select('id, novel_id, status, num, title, updated_at, draft_doc, draft_html')
     .in(
       'novel_id',
       novelList.map((n) => n.id),
@@ -376,6 +390,7 @@ export async function fetchNovelsWithStats(): Promise<StudioNovelSummary[]> {
       chapterCount: number;
       publishedCount: number;
       draftCount: number;
+      wordCount: number;
       latestChapterId: string | null;
       latestChapterNum: string | null;
       latestChapterTitle: string | null;
@@ -385,12 +400,17 @@ export async function fetchNovelsWithStats(): Promise<StudioNovelSummary[]> {
 
   for (const row of chapterRows || []) {
     if (row.status === 'archived') continue;
+    const chapterWords = countWordsFromDraftRow(
+      row.draft_doc as TiptapDocJson | null | undefined,
+      row.draft_html as string | null | undefined,
+    );
     const prev = grouped.get(row.novel_id);
     if (!prev) {
       grouped.set(row.novel_id, {
         chapterCount: 1,
         publishedCount: row.status === 'published' ? 1 : 0,
         draftCount: row.status === 'draft' ? 1 : 0,
+        wordCount: chapterWords,
         latestChapterId: row.id,
         latestChapterNum: row.num,
         latestChapterTitle: row.title,
@@ -398,6 +418,7 @@ export async function fetchNovelsWithStats(): Promise<StudioNovelSummary[]> {
       });
     } else {
       prev.chapterCount += 1;
+      prev.wordCount += chapterWords;
       if (row.status === 'published') prev.publishedCount += 1;
       if (row.status === 'draft') prev.draftCount += 1;
     }
@@ -416,6 +437,7 @@ export async function fetchNovelsWithStats(): Promise<StudioNovelSummary[]> {
         chapterCount: stats?.chapterCount ?? 0,
         publishedCount: stats?.publishedCount ?? 0,
         draftCount: stats?.draftCount ?? 0,
+        wordCount: stats?.wordCount ?? 0,
         latestChapterId: stats?.latestChapterId ?? null,
         latestChapterNum: stats?.latestChapterNum ?? null,
         latestChapterTitle: stats?.latestChapterTitle ?? null,

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { TiptapDocJson } from '../src/studio/types/studio';
+import type { StudioNovelSummary, TiptapDocJson } from '../src/studio/types/studio';
 import {
   createNewChapterPayload,
   detectVersionConflict,
@@ -13,6 +13,13 @@ import {
   shouldClearPendingSave,
   shouldReloadEditorDocument,
 } from '../src/studio/utils/chapterOrdering';
+import {
+  clampDailyWordTarget,
+  computeHubWritingStats,
+  loadDailyWordTarget,
+  saveDailyWordTarget,
+  syncDailyWritingProgress,
+} from '../src/studio/utils/writingStats';
 import { buildChapterHtml } from '../src/utils/chapterHtml';
 import {
   detectSlashTriggerText,
@@ -518,4 +525,124 @@ test('bgmCue actions pause and fadeout survive HTML serialization and re-parsing
   assert.equal(reparsed.content[1].type, 'bgmCue');
   assert.equal(reparsed.content[1].attrs?.action, 'fadeout');
 });
+
+test('writingStats computes hub totals, active projects, daily targets, and today progress accurately', () => {
+  const sampleWorks: StudioNovelSummary[] = [
+    {
+      id: 'n1',
+      slug: 'novel-satu',
+      title: 'Novel Satu',
+      subtitle: '',
+      synopsis: '',
+      authorName: 'Penulis',
+      coverImageUrl: null,
+      workType: 'novel',
+      status: 'published',
+      defaultBgm: 'default',
+      createdAt: '2026-11-10T00:00:00Z',
+      updatedAt: '2026-11-14T00:00:00Z',
+      chapterCount: 5,
+      publishedCount: 4,
+      draftCount: 1,
+      wordCount: 4200,
+      latestChapterId: 'c5',
+      latestChapterNum: 'Bab 5',
+      latestChapterTitle: 'Hujan',
+      lastActivityAt: '2026-11-14T00:00:00Z',
+    },
+    {
+      id: 'n2',
+      slug: 'cerpen-dua',
+      title: 'Cerpen Dua',
+      subtitle: '',
+      synopsis: '',
+      authorName: 'Penulis',
+      coverImageUrl: null,
+      workType: 'cerpen',
+      status: 'draft',
+      defaultBgm: 'default',
+      createdAt: '2026-11-12T00:00:00Z',
+      updatedAt: '2026-11-14T00:00:00Z',
+      chapterCount: 1,
+      publishedCount: 0,
+      draftCount: 1,
+      wordCount: 950,
+      latestChapterId: 'c6',
+      latestChapterNum: 'Cerita Pendek',
+      latestChapterTitle: 'Senja',
+      lastActivityAt: '2026-11-14T00:00:00Z',
+    },
+    {
+      id: 'n3',
+      slug: 'arsip-lama',
+      title: 'Arsip Lama',
+      subtitle: '',
+      synopsis: '',
+      authorName: 'Penulis',
+      coverImageUrl: null,
+      workType: 'notes',
+      status: 'archived',
+      defaultBgm: 'default',
+      createdAt: '2026-11-01T00:00:00Z',
+      updatedAt: '2026-11-02T00:00:00Z',
+      chapterCount: 2,
+      publishedCount: 0,
+      draftCount: 2,
+      wordCount: 300,
+      latestChapterId: 'c7',
+      latestChapterNum: 'Catatan',
+      latestChapterTitle: 'Ide',
+      lastActivityAt: '2026-11-02T00:00:00Z',
+    },
+  ];
+
+  const stats = computeHubWritingStats(sampleWorks);
+  assert.equal(stats.totalWords, 5450);
+  assert.equal(stats.totalChapters, 8);
+  assert.equal(stats.activeProjectsCount, 2);
+  assert.equal(stats.publishedProjectsCount, 1);
+  assert.equal(stats.draftProjectsCount, 1);
+  assert.equal(stats.archivedProjectsCount, 1);
+
+  assert.equal(clampDailyWordTarget(10), 50);
+  assert.equal(clampDailyWordTarget(999999), 50000);
+  assert.equal(clampDailyWordTarget(1500), 1500);
+
+  const mem = new Map<string, string>();
+  const storage = {
+    getItem: (k: string) => mem.get(k) ?? null,
+    setItem: (k: string, v: string) => {
+      mem.set(k, v);
+    },
+  };
+
+  assert.equal(loadDailyWordTarget('user-1', storage), 1000);
+  const savedTarget = saveDailyWordTarget(1750, 'user-1', storage);
+  assert.equal(savedTarget, 1750);
+  assert.equal(loadDailyWordTarget('user-1', storage), 1750);
+
+  const dayStart = syncDailyWritingProgress(5000, {
+    userKey: 'user-1',
+    todayKey: '2026-11-15',
+    storage,
+  });
+  assert.equal(dayStart.baselineWords, 5000);
+  assert.equal(dayStart.wordsToday, 0);
+
+  const afterWriting = syncDailyWritingProgress(5450, {
+    userKey: 'user-1',
+    todayKey: '2026-11-15',
+    storage,
+  });
+  assert.equal(afterWriting.wordsToday, 450);
+
+  const afterDeletion = syncDailyWritingProgress(4800, {
+    userKey: 'user-1',
+    todayKey: '2026-11-15',
+    storage,
+  });
+  assert.equal(afterDeletion.baselineWords, 4800);
+  assert.equal(afterDeletion.wordsToday, 0);
+});
+
 
