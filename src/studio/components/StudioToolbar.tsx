@@ -180,10 +180,14 @@ export function StudioToolbar({
 
   const applyLineHeight = (lh: string) => {
     if (!editor) return;
-    editor.chain().focus().updateAttributes('paragraph', { lineHeight: lh }).run();
-    editor.chain().focus().updateAttributes('heading', { lineHeight: lh }).run();
-    editor.chain().focus().updateAttributes('dialogueBlock', { lineHeight: lh }).run();
-    editor.chain().focus().updateAttributes('innerThoughtBlock', { lineHeight: lh }).run();
+    editor
+      .chain()
+      .focus()
+      .updateAttributes('paragraph', { lineHeight: lh })
+      .updateAttributes('heading', { lineHeight: lh })
+      .updateAttributes('dialogueBlock', { lineHeight: lh })
+      .updateAttributes('innerThoughtBlock', { lineHeight: lh })
+      .run();
   };
 
   return (

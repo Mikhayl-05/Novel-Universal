@@ -339,6 +339,70 @@ class AudioManagerService {
     this.crossfadeDecks(incomingDeck, hasOutgoing ? outgoingDeck : null, requestedVol, 380);
   }
 
+  public pause(fadeMs = 280): void {
+    this.pendingIntent = null;
+    this.clearFadeTimers();
+    const activeDeck = this.decks ? this.decks[this.activeDeckIdx] : null;
+    if (!activeDeck || activeDeck.paused) return;
+
+    const startVol = activeDeck.volume;
+    if (startVol <= 0.01 || fadeMs <= 0 || typeof requestAnimationFrame !== 'function') {
+      activeDeck.volume = 0;
+      activeDeck.pause();
+      return;
+    }
+
+    const startTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const step = (now: number) => {
+      const t = Math.min(1, (now - startTime) / fadeMs);
+      activeDeck.volume = Math.max(0, startVol * (1 - t));
+      if (t < 1) {
+        this.crossfadeRaf = requestAnimationFrame(step);
+      } else {
+        this.clearFadeTimers();
+        activeDeck.volume = 0;
+        activeDeck.pause();
+      }
+    };
+    this.crossfadeRaf = requestAnimationFrame(step);
+  }
+
+  public fadeOut(fadeMs = 850): void {
+    this.pendingIntent = null;
+    this.clearFadeTimers();
+    const activeDeck = this.decks ? this.decks[this.activeDeckIdx] : null;
+    const resetMeta = () => {
+      if (this.decks) {
+        for (const deck of this.decks) {
+          deck.pause();
+          deck.currentTime = 0;
+          deck.volume = 0;
+        }
+      }
+      this.currentSourceId = null;
+      this.currentKey = null;
+    };
+
+    if (!activeDeck || activeDeck.paused || fadeMs <= 0 || typeof requestAnimationFrame !== 'function') {
+      resetMeta();
+      return;
+    }
+
+    const startVol = activeDeck.volume;
+    const startTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const step = (now: number) => {
+      const t = Math.min(1, (now - startTime) / fadeMs);
+      activeDeck.volume = Math.max(0, startVol * (1 - t));
+      if (t < 1) {
+        this.crossfadeRaf = requestAnimationFrame(step);
+      } else {
+        this.clearFadeTimers();
+        resetMeta();
+      }
+    };
+    this.crossfadeRaf = requestAnimationFrame(step);
+  }
+
   public stop(): void {
     this.pendingIntent = null;
     this.clearFadeTimers();
@@ -377,7 +441,10 @@ class AudioManagerService {
 
   public playSfx(url: string, volume = 0.7): void {
     if (typeof Audio === 'undefined' || !url || this.isMuted) return;
-    const sfx = new Audio(url);
+    const cleanUrl = url.trim();
+    if (!cleanUrl) return;
+    const sfx = new Audio(cleanUrl);
+    sfx.preload = 'auto';
     sfx.volume = Math.max(0, Math.min(1, volume));
     sfx.play().catch(() => {});
   }

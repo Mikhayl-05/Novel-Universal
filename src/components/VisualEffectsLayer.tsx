@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import type { ChapterId, VfxKey } from '../types/novel';
 
 interface VisualEffectsLayerProps {
@@ -6,6 +6,8 @@ interface VisualEffectsLayerProps {
   effect?: VfxKey;
   triggerMode?: 'scroll_40' | 'immediate' | 'none';
   durationMs?: number;
+  scrollContainerRef?: RefObject<HTMLElement | null>;
+  listenCueEvent?: boolean;
 }
 
 const PASIR_COLORS = [
@@ -330,15 +332,49 @@ export function VisualEffectsLayer({
   effect,
   triggerMode = 'scroll_40',
   durationMs = 25000,
+  scrollContainerRef,
+  listenCueEvent = false,
 }: VisualEffectsLayerProps) {
   const [triggeredEffect, setTriggeredEffect] = useState<VfxKey | null>(null);
   const [isActive, setIsActive] = useState(false);
   const [sketchFadeOut, setSketchFadeOut] = useState(false);
+  const cueCleanupRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cueSketchFadeRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const runEffect = (nextEffect: VfxKey, nextDurationMs: number) => {
+    if (!nextEffect || nextEffect === 'none') return;
+    if (cueCleanupRef.current !== null) clearTimeout(cueCleanupRef.current);
+    if (cueSketchFadeRef.current !== null) clearTimeout(cueSketchFadeRef.current);
+
+    setTriggeredEffect(null);
+    setIsActive(false);
+    setSketchFadeOut(false);
+
+    requestAnimationFrame(() => {
+      setTriggeredEffect(nextEffect);
+      requestAnimationFrame(() => {
+        setIsActive(true);
+      });
+    });
+
+    if (nextEffect === 'sketch_lines') {
+      cueSketchFadeRef.current = setTimeout(() => {
+        setSketchFadeOut(true);
+      }, Math.min(4500, Math.max(1200, nextDurationMs - 1500)));
+    }
+    cueCleanupRef.current = setTimeout(() => {
+      setTriggeredEffect(null);
+      setIsActive(false);
+      setSketchFadeOut(false);
+    }, Math.max(1000, nextDurationMs));
+  };
 
   useEffect(() => {
     setTriggeredEffect(null);
     setIsActive(false);
     setSketchFadeOut(false);
+    if (cueCleanupRef.current !== null) clearTimeout(cueCleanupRef.current);
+    if (cueSketchFadeRef.current !== null) clearTimeout(cueSketchFadeRef.current);
 
     if (!effect || effect === 'none' || triggerMode === 'none') return undefined;
 
@@ -347,6 +383,7 @@ export function VisualEffectsLayer({
     let cleanupTimer: ReturnType<typeof setTimeout> | null = null;
     let sketchFadeTimer: ReturnType<typeof setTimeout> | null = null;
     let scrollListenerAttached = false;
+    const containerEl = scrollContainerRef?.current ?? null;
 
     const trigger = () => {
       if (triggered) return;
@@ -367,15 +404,30 @@ export function VisualEffectsLayer({
       }, durationMs);
     };
 
+    const getScrollStats = () => {
+      if (containerEl) {
+        return {
+          scrolled: containerEl.scrollTop,
+          totalHeight: containerEl.scrollHeight - containerEl.clientHeight,
+        };
+      }
+      return {
+        scrolled: window.scrollY || window.pageYOffset,
+        totalHeight: document.documentElement.scrollHeight - window.innerHeight,
+      };
+    };
+
     const handleScroll = () => {
       if (triggered) return;
-      const scrolled = window.scrollY || window.pageYOffset;
-      const totalHeight =
-        document.documentElement.scrollHeight - window.innerHeight;
+      const { scrolled, totalHeight } = getScrollStats();
       const progress = totalHeight > 0 ? scrolled / totalHeight : 0;
       if (progress >= 0.4) {
         trigger();
-        window.removeEventListener('scroll', handleScroll);
+        if (containerEl) {
+          containerEl.removeEventListener('scroll', handleScroll);
+        } else {
+          window.removeEventListener('scroll', handleScroll);
+        }
         scrollListenerAttached = false;
       }
     };
@@ -385,28 +437,57 @@ export function VisualEffectsLayer({
         trigger();
         return;
       }
-      const totalHeight =
-        document.documentElement.scrollHeight - window.innerHeight;
+      const { totalHeight } = getScrollStats();
       if (totalHeight <= 50) {
         shortTimer = setTimeout(() => {
           trigger();
         }, 2200);
       } else {
         scrollListenerAttached = true;
-        window.addEventListener('scroll', handleScroll, { passive: true });
+        if (containerEl) {
+          containerEl.addEventListener('scroll', handleScroll, { passive: true });
+        } else {
+          window.addEventListener('scroll', handleScroll, { passive: true });
+        }
       }
     });
 
     return () => {
       cancelAnimationFrame(rafId);
       if (scrollListenerAttached) {
-        window.removeEventListener('scroll', handleScroll);
+        if (containerEl) {
+          containerEl.removeEventListener('scroll', handleScroll);
+        } else {
+          window.removeEventListener('scroll', handleScroll);
+        }
       }
       if (shortTimer !== null) clearTimeout(shortTimer);
       if (cleanupTimer !== null) clearTimeout(cleanupTimer);
       if (sketchFadeTimer !== null) clearTimeout(sketchFadeTimer);
     };
-  }, [chapterId, effect, triggerMode, durationMs]);
+  }, [chapterId, effect, triggerMode, durationMs, scrollContainerRef]);
+
+  useEffect(() => {
+    if (!listenCueEvent) return undefined;
+    const onCue = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ effect?: VfxKey; durationMs?: number }>).detail;
+      if (!detail?.effect || detail.effect === 'none') return;
+      runEffect(detail.effect, detail.durationMs ?? 25000);
+    };
+    window.addEventListener('reader:vfx-cue', onCue);
+    window.addEventListener('studio:test-vfx', onCue);
+    return () => {
+      window.removeEventListener('reader:vfx-cue', onCue);
+      window.removeEventListener('studio:test-vfx', onCue);
+    };
+  }, [listenCueEvent]);
+
+  useEffect(() => {
+    return () => {
+      if (cueCleanupRef.current !== null) clearTimeout(cueCleanupRef.current);
+      if (cueSketchFadeRef.current !== null) clearTimeout(cueSketchFadeRef.current);
+    };
+  }, []);
 
   if (!triggeredEffect || triggeredEffect === 'none') return null;
 

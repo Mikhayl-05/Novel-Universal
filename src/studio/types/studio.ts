@@ -54,6 +54,22 @@ export interface StudioNovel {
   updatedAt: string;
 }
 
+export interface StudioNovelSummary extends StudioNovel {
+  chapterCount: number;
+  publishedCount: number;
+  draftCount: number;
+  latestChapterId: string | null;
+  latestChapterNum: string | null;
+  latestChapterTitle: string | null;
+  lastActivityAt: string;
+}
+
+export interface FlushSaveResult {
+  status: 'saved' | 'noop' | 'offline' | 'conflict' | 'error';
+  chapter?: StudioChapter | null;
+  message?: string;
+}
+
 export interface ChapterStudioMetadata {
   marginPreset?: MarginPreset;
   notes?: string;

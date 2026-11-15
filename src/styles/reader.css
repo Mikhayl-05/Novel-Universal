@@ -319,11 +319,28 @@ body.reduce-motion .para-highlight-flash { animation: none; background: var(--ac
   margin: 1.75rem 0;
   text-align: center;
 }
+.novel-image-block[data-align='left'] {
+  text-align: left;
+}
+.novel-image-block[data-align='right'] {
+  text-align: right;
+}
 .novel-image-block img {
   max-width: 100%;
   height: auto;
   border-radius: 8px;
   border: 1px solid var(--rule);
+  display: inline-block;
+}
+.novel-image-block[data-width='normal'] img {
+  max-width: min(100%, 460px);
+}
+.novel-image-block[data-width='wide'] img {
+  max-width: min(100%, 600px);
+}
+.novel-image-block[data-width='full'] img {
+  width: 100%;
+  max-width: 100%;
 }
 .novel-image-block figcaption {
   margin-top: 0.5rem;
@@ -333,12 +350,28 @@ body.reduce-motion .para-highlight-flash { animation: none; background: var(--ac
   font-style: italic;
 }
 
-.novel-narrative-card {
+.novel-narrative-card,
+.chat-box {
   background: var(--accent-light);
   border: 1px solid var(--rule);
-  border-radius: 8px;
+  border-radius: 10px;
   padding: 1.1rem 1.3rem;
   margin: 1.5rem 0;
+}
+.novel-narrative-card[data-variant='letter'] {
+  font-family: var(--font-serif);
+  font-style: italic;
+  background: var(--bg-card);
+  border-color: var(--accent);
+}
+.novel-narrative-card[data-variant='timestamp'] {
+  text-align: center;
+  padding: 0.75rem 1rem;
+  background: transparent;
+  border-style: dashed;
+}
+.novel-narrative-card[data-variant='note'] {
+  background: var(--bg-card);
 }
 .novel-narrative-card-label {
   font-family: var(--font-sans);
@@ -349,6 +382,17 @@ body.reduce-motion .para-highlight-flash { animation: none; background: var(--ac
   margin-bottom: 0.6rem;
   font-weight: 700;
 }
+.novel-narrative-card p:last-child,
+.chat-box p:last-child,
+.flashback-wrap p:last-child {
+  margin-bottom: 0;
+}
+.chat-box p {
+  font-family: var(--font-sans);
+  font-size: 0.92rem;
+  line-height: 1.55;
+  margin-bottom: 0.65rem;
+}
 
 .novel-chapter-marker {
   margin: 2rem 0 1.4rem;
@@ -356,10 +400,18 @@ body.reduce-motion .para-highlight-flash { animation: none; background: var(--ac
   border-top: 1px solid var(--rule);
 }
 
+/* 1px invisible marker so IntersectionObserver detects scroll triggers accurately */
 .novel-sfx-cue,
 .novel-vfx-cue,
 .novel-bgm-cue {
-  display: none;
+  display: block;
+  height: 1px;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  visibility: hidden;
+  pointer-events: none;
+  overflow: hidden;
 }
 
 

@@ -266,3 +266,40 @@ export function mergeSyncedChapterMetadata(
     publishedVersion: synced.publishedVersion,
   };
 }
+
+export function hasLocalBackupChanges(
+  chapter: StudioChapter,
+  patch: {
+    num: string;
+    title: string;
+    setting: string;
+    feeling: string;
+    isPrologue: boolean;
+    isEnding: boolean;
+    draftHtml: string;
+    draftBgm: string;
+    draftBgmUrl: string | null;
+    draftBgmVolume: number;
+    draftBgmLoop: boolean;
+    draftEffect: string;
+    draftVfxTrigger: string;
+    draftVfxDurationMs: number;
+  },
+): boolean {
+  return (
+    chapter.num !== patch.num ||
+    chapter.title !== patch.title ||
+    chapter.setting !== patch.setting ||
+    (chapter.feeling || '') !== (patch.feeling || '') ||
+    chapter.isPrologue !== patch.isPrologue ||
+    chapter.isEnding !== patch.isEnding ||
+    chapter.draftHtml !== patch.draftHtml ||
+    chapter.draftBgm !== patch.draftBgm ||
+    (chapter.draftBgmUrl ?? null) !== (patch.draftBgmUrl ?? null) ||
+    chapter.draftBgmVolume !== patch.draftBgmVolume ||
+    chapter.draftBgmLoop !== patch.draftBgmLoop ||
+    chapter.draftEffect !== patch.draftEffect ||
+    chapter.draftVfxTrigger !== patch.draftVfxTrigger ||
+    chapter.draftVfxDurationMs !== patch.draftVfxDurationMs
+  );
+}

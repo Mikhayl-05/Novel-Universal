@@ -11,11 +11,13 @@ import {
 } from '../services/studioRepository';
 import type {
   ConflictPayload,
+  FlushSaveResult,
   SaveState,
   StudioChapter,
 } from '../types/studio';
 import {
   detectVersionConflict,
+  hasLocalBackupChanges,
   shouldClearPendingSave,
 } from '../utils/chapterOrdering';
 
@@ -27,6 +29,11 @@ interface UseStudioAutosaveOptions {
     preserveNewerLocalEdits: boolean,
     forceReloadEditor?: boolean,
   ) => void;
+  onRecoverLocalBackup?: (
+    chapterId: string,
+    patch: SaveDraftPatch,
+    baseUpdatedAt: string,
+  ) => void;
 }
 
 export interface UseStudioAutosaveResult {
@@ -35,20 +42,22 @@ export interface UseStudioAutosaveResult {
   saveError: string | null;
   conflict: ConflictPayload | null;
   pendingBackup: boolean;
+  hasPendingChanges: boolean;
   scheduleSave: (chapterId: string, baseVersion: number, patch: SaveDraftPatch) => void;
-  flushSave: (forceOverwrite?: boolean) => Promise<StudioChapter | null>;
+  flushSave: (forceOverwrite?: boolean) => Promise<FlushSaveResult>;
   resolveConflictUseServer: () => Promise<void>;
-  resolveConflictKeepMine: () => Promise<StudioChapter | null>;
+  resolveConflictKeepMine: () => Promise<FlushSaveResult>;
   dismissConflict: () => void;
 }
 
-const DEBOUNCE_MS = 1100;
+const DEBOUNCE_MS = 1000;
 const AUTO_REVISION_INTERVAL_MS = 5 * 60 * 1000;
 
 export function useStudioAutosave({
   novelId,
   activeChapter,
   onChapterSynced,
+  onRecoverLocalBackup,
 }: UseStudioAutosaveOptions): UseStudioAutosaveResult {
   const [saveState, setSaveState] = useState<SaveState>(() =>
     typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : 'saved',
@@ -63,8 +72,12 @@ export function useStudioAutosave({
   const followUpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retryCountRef = useRef(0);
   const lastRevisionAtRef = useRef<Record<string, number>>({});
-  const inFlightRef = useRef(false);
+  const inFlightPromiseRef = useRef<Promise<FlushSaveResult> | null>(null);
   const editSeqRef = useRef(0);
+
+  const latestServerVersionRef = useRef<
+    Record<string, { version: number; updatedAt: string }>
+  >({});
 
   const pendingPayloadRef = useRef<{
     chapterId: string;
@@ -76,6 +89,19 @@ export function useStudioAutosave({
 
   const activeChapterRef = useRef(activeChapter);
   activeChapterRef.current = activeChapter;
+  const onRecoverLocalBackupRef = useRef(onRecoverLocalBackup);
+  onRecoverLocalBackupRef.current = onRecoverLocalBackup;
+
+  useEffect(() => {
+    if (!activeChapter) return;
+    const known = latestServerVersionRef.current[activeChapter.id];
+    if (!known || activeChapter.draftVersion > known.version) {
+      latestServerVersionRef.current[activeChapter.id] = {
+        version: activeChapter.draftVersion,
+        updatedAt: activeChapter.updatedAt,
+      };
+    }
+  }, [activeChapter?.id, activeChapter?.draftVersion, activeChapter?.updatedAt]);
 
   const commitToSupabase = useCallback(
     async (
@@ -84,138 +110,168 @@ export function useStudioAutosave({
       patch: SaveDraftPatch,
       forceOverwrite = false,
       dispatchedSeq = editSeqRef.current,
-    ): Promise<StudioChapter | null> => {
+    ): Promise<FlushSaveResult> => {
       if (typeof navigator !== 'undefined' && !navigator.onLine) {
         setSaveState('offline');
         setPendingBackup(true);
-        return null;
+        return {
+          status: 'offline',
+          chapter: null,
+          message: 'Perangkat sedang offline. Perubahan diamankan secara lokal.',
+        };
       }
 
-      if (inFlightRef.current) {
-        return null;
+      if (inFlightPromiseRef.current) {
+        return inFlightPromiseRef.current;
       }
 
-      inFlightRef.current = true;
-      setSaveState('syncing');
-      setSaveError(null);
+      const knownServer = latestServerVersionRef.current[chapterId];
+      const resolvedBaseVersion =
+        knownServer && knownServer.version > baseVersion
+          ? knownServer.version
+          : baseVersion;
 
-      let hadConflict = false;
-      let shouldFollowUp = false;
+      const run = (async (): Promise<FlushSaveResult> => {
+        setSaveState('syncing');
+        setSaveError(null);
 
-      try {
-        const result = await saveChapterDraftWithConcurrency(
-          chapterId,
-          baseVersion,
-          patch,
-          forceOverwrite,
-        );
+        let hadConflict = false;
+        let shouldFollowUp = false;
 
-        if (result.kind === 'conflict') {
-          hadConflict = true;
-          setSaveState('conflict');
-          setConflict({
+        try {
+          const result = await saveChapterDraftWithConcurrency(
             chapterId,
-            localVersion: baseVersion,
-            serverVersion: result.serverChapter.draftVersion,
-            serverUpdatedAt: result.serverChapter.updatedAt,
-            serverChapter: result.serverChapter,
-          });
-          return null;
-        }
+            resolvedBaseVersion,
+            patch,
+            forceOverwrite,
+          );
 
-        retryCountRef.current = 0;
-        const canClear = shouldClearPendingSave(dispatchedSeq, editSeqRef.current);
+          if (result.kind === 'conflict') {
+            hadConflict = true;
+            latestServerVersionRef.current[chapterId] = {
+              version: result.serverChapter.draftVersion,
+              updatedAt: result.serverChapter.updatedAt,
+            };
+            setSaveState('conflict');
+            setConflict({
+              chapterId,
+              localVersion: resolvedBaseVersion,
+              serverVersion: result.serverChapter.draftVersion,
+              serverUpdatedAt: result.serverChapter.updatedAt,
+              serverChapter: result.serverChapter,
+            });
+            return {
+              status: 'conflict',
+              chapter: result.serverChapter,
+              message: 'Konflik versi terdeteksi dengan salinan terbaru di Supabase.',
+            };
+          }
 
-        if (canClear) {
-          pendingPayloadRef.current = null;
-          setConflict(null);
-          setPendingBackup(false);
-          setSaveState('saved');
-          setLastSavedAt(Date.now());
-          await clearLocalDraftBackup(chapterId);
-          onChapterSynced(result.chapter, false, false);
-        } else {
-          // User kept typing while HTTP request was in flight:
-          // advance baseVersion/baseUpdatedAt so the follow-up save uses the new server version,
-          // and merge ONLY version/status metadata without touching newer ProseMirror text or React draft content.
+          retryCountRef.current = 0;
+          latestServerVersionRef.current[chapterId] = {
+            version: result.chapter.draftVersion,
+            updatedAt: result.chapter.updatedAt,
+          };
+
+          const canClear = shouldClearPendingSave(dispatchedSeq, editSeqRef.current);
+
+          if (canClear) {
+            pendingPayloadRef.current = null;
+            setConflict(null);
+            setPendingBackup(false);
+            setSaveState('saved');
+            setLastSavedAt(Date.now());
+            await clearLocalDraftBackup(chapterId);
+            onChapterSynced(result.chapter, false, false);
+          } else {
+            if (
+              pendingPayloadRef.current &&
+              pendingPayloadRef.current.chapterId === chapterId
+            ) {
+              pendingPayloadRef.current = {
+                ...pendingPayloadRef.current,
+                baseVersion: result.chapter.draftVersion,
+                baseUpdatedAt: result.chapter.updatedAt,
+              };
+              shouldFollowUp = true;
+            }
+            setConflict(null);
+            setSaveState('saving');
+            setLastSavedAt(Date.now());
+            onChapterSynced(result.chapter, true, false);
+          }
+
+          const now = Date.now();
+          const prevRevTime = lastRevisionAtRef.current[chapterId] ?? 0;
+          if (now - prevRevTime >= AUTO_REVISION_INTERVAL_MS) {
+            lastRevisionAtRef.current[chapterId] = now;
+            void createChapterRevision(result.chapter, 'autosave').catch(() => {
+              // Non-blocking snapshot failure
+            });
+          }
+
+          return {
+            status: 'saved',
+            chapter: result.chapter,
+          };
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : 'Gagal menyinkronkan ke cloud.';
+          setSaveError(msg);
+          const isOffline =
+            typeof navigator !== 'undefined' && !navigator.onLine;
+          setSaveState(isOffline ? 'offline' : 'error');
+
+          if (retryCountRef.current < 3 && !isOffline) {
+            retryCountRef.current += 1;
+            const backoffMs = 1500 * Math.pow(2, retryCountRef.current - 1);
+            if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+            retryTimerRef.current = setTimeout(() => {
+              const latest = pendingPayloadRef.current;
+              if (latest && latest.chapterId === chapterId) {
+                void commitToSupabase(
+                  latest.chapterId,
+                  latest.baseVersion,
+                  latest.patch,
+                  false,
+                  latest.seq,
+                );
+              }
+            }, backoffMs);
+          }
+
+          return {
+            status: isOffline ? 'offline' : 'error',
+            chapter: null,
+            message: msg,
+          };
+        } finally {
+          inFlightPromiseRef.current = null;
+
           if (
+            shouldFollowUp &&
+            !hadConflict &&
             pendingPayloadRef.current &&
             pendingPayloadRef.current.chapterId === chapterId
           ) {
-            pendingPayloadRef.current = {
-              ...pendingPayloadRef.current,
-              baseVersion: result.chapter.draftVersion,
-              baseUpdatedAt: result.chapter.updatedAt,
-            };
-            shouldFollowUp = true;
+            if (followUpTimerRef.current) clearTimeout(followUpTimerRef.current);
+            followUpTimerRef.current = setTimeout(() => {
+              const nextQueued = pendingPayloadRef.current;
+              if (nextQueued && nextQueued.chapterId === chapterId) {
+                void commitToSupabase(
+                  nextQueued.chapterId,
+                  nextQueued.baseVersion,
+                  nextQueued.patch,
+                  false,
+                  nextQueued.seq,
+                );
+              }
+            }, 140);
           }
-          setConflict(null);
-          setSaveState('saving');
-          setLastSavedAt(Date.now());
-          onChapterSynced(result.chapter, true, false);
         }
+      })();
 
-        // Periodically store an autosave revision snapshot (every 5 minutes of active editing)
-        const now = Date.now();
-        const prevRevTime = lastRevisionAtRef.current[chapterId] ?? 0;
-        if (now - prevRevTime >= AUTO_REVISION_INTERVAL_MS) {
-          lastRevisionAtRef.current[chapterId] = now;
-          void createChapterRevision(result.chapter, 'autosave').catch(() => {
-            // Non-blocking snapshot failure
-          });
-        }
-
-        return result.chapter;
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Gagal menyinkronkan ke cloud.';
-        setSaveError(msg);
-        setSaveState(
-          typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : 'error',
-        );
-
-        if (retryCountRef.current < 3) {
-          retryCountRef.current += 1;
-          const backoffMs = 1500 * Math.pow(2, retryCountRef.current - 1);
-          if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
-          retryTimerRef.current = setTimeout(() => {
-            const latest = pendingPayloadRef.current;
-            if (latest && latest.chapterId === chapterId) {
-              void commitToSupabase(
-                latest.chapterId,
-                latest.baseVersion,
-                latest.patch,
-                false,
-                latest.seq,
-              );
-            }
-          }, backoffMs);
-        }
-
-        return null;
-      } finally {
-        inFlightRef.current = false;
-
-        if (
-          shouldFollowUp &&
-          !hadConflict &&
-          pendingPayloadRef.current &&
-          pendingPayloadRef.current.chapterId === chapterId
-        ) {
-          if (followUpTimerRef.current) clearTimeout(followUpTimerRef.current);
-          followUpTimerRef.current = setTimeout(() => {
-            const nextQueued = pendingPayloadRef.current;
-            if (nextQueued && nextQueued.chapterId === chapterId) {
-              void commitToSupabase(
-                nextQueued.chapterId,
-                nextQueued.baseVersion,
-                nextQueued.patch,
-                false,
-                nextQueued.seq,
-              );
-            }
-          }, 180);
-        }
-      }
+      inFlightPromiseRef.current = run;
+      return run;
     },
     [onChapterSynced],
   );
@@ -223,13 +279,22 @@ export function useStudioAutosave({
   const scheduleSave = useCallback(
     (chapterId: string, baseVersion: number, patch: SaveDraftPatch) => {
       const current = activeChapterRef.current;
-      const baseUpdatedAt = current?.updatedAt ?? new Date().toISOString();
+      const knownServer = latestServerVersionRef.current[chapterId];
+      const effectiveBaseVersion =
+        knownServer && knownServer.version > baseVersion
+          ? knownServer.version
+          : baseVersion;
+      const baseUpdatedAt =
+        knownServer?.updatedAt ??
+        current?.updatedAt ??
+        new Date().toISOString();
+
       editSeqRef.current += 1;
       const seq = editSeqRef.current;
 
       pendingPayloadRef.current = {
         chapterId,
-        baseVersion,
+        baseVersion: effectiveBaseVersion,
         baseUpdatedAt,
         patch,
         seq,
@@ -239,12 +304,13 @@ export function useStudioAutosave({
         typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : 'saving',
       );
       setSaveError(null);
+      setPendingBackup(true);
 
       // Immediate IndexedDB/localStorage crash-safe backup
       void saveLocalDraftBackup({
         chapterId,
         novelId: novelId ?? current?.novelId ?? '',
-        baseVersion,
+        baseVersion: effectiveBaseVersion,
         baseUpdatedAt,
         dirty: true,
         savedAt: Date.now(),
@@ -268,7 +334,7 @@ export function useStudioAutosave({
   );
 
   const flushSave = useCallback(
-    async (forceOverwrite = false): Promise<StudioChapter | null> => {
+    async (forceOverwrite = false): Promise<FlushSaveResult> => {
       if (timerRef.current) {
         clearTimeout(timerRef.current);
         timerRef.current = null;
@@ -281,17 +347,47 @@ export function useStudioAutosave({
         clearTimeout(followUpTimerRef.current);
         followUpTimerRef.current = null;
       }
-      const queued = pendingPayloadRef.current;
-      if (!queued) {
-        return activeChapterRef.current;
+
+      // If an autosave request is currently in-flight, wait for it to finish cleanly
+      // so any newer keystrokes entered while it was running are flushed next.
+      if (inFlightPromiseRef.current) {
+        try {
+          const prevResult = await inFlightPromiseRef.current;
+          if (!pendingPayloadRef.current) {
+            return prevResult;
+          }
+        } catch {
+          // Continue to evaluate pending payload below
+        }
       }
-      return commitToSupabase(
-        queued.chapterId,
-        queued.baseVersion,
-        queued.patch,
-        forceOverwrite,
-        queued.seq,
-      );
+
+      let lastResult: FlushSaveResult = {
+        status: 'noop',
+        chapter: activeChapterRef.current,
+        message: 'Semua perubahan sudah tersimpan di Supabase.',
+      };
+
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        const queued = pendingPayloadRef.current;
+        if (!queued) break;
+
+        lastResult = await commitToSupabase(
+          queued.chapterId,
+          queued.baseVersion,
+          queued.patch,
+          forceOverwrite,
+          queued.seq,
+        );
+
+        if (lastResult.status !== 'saved') {
+          return lastResult;
+        }
+        if (!pendingPayloadRef.current) {
+          return lastResult;
+        }
+      }
+
+      return lastResult;
     },
     [commitToSupabase],
   );
@@ -300,20 +396,23 @@ export function useStudioAutosave({
   useEffect(() => {
     if (!activeChapter) return;
     let cancelled = false;
-    void loadLocalDraftBackup(activeChapter.id).then((backup) => {
+    void loadLocalDraftBackup(activeChapter.id).then(async (backup) => {
       if (cancelled || !backup || !backup.dirty) {
-        setPendingBackup(false);
+        if (!cancelled && !pendingPayloadRef.current) {
+          setPendingBackup(false);
+        }
         return;
       }
-      setPendingBackup(true);
-      if (
-        detectVersionConflict({
-          localBaseVersion: backup.baseVersion,
-          localBaseUpdatedAt: backup.baseUpdatedAt,
-          serverVersion: activeChapter.draftVersion,
-          serverUpdatedAt: activeChapter.updatedAt,
-        })
-      ) {
+
+      const hasConflict = detectVersionConflict({
+        localBaseVersion: backup.baseVersion,
+        localBaseUpdatedAt: backup.baseUpdatedAt,
+        serverVersion: activeChapter.draftVersion,
+        serverUpdatedAt: activeChapter.updatedAt,
+      });
+
+      if (hasConflict) {
+        setPendingBackup(true);
         editSeqRef.current += 1;
         pendingPayloadRef.current = {
           chapterId: activeChapter.id,
@@ -330,12 +429,44 @@ export function useStudioAutosave({
           serverChapter: activeChapter,
         });
         setSaveState('conflict');
+        return;
       }
+
+      // No version conflict, check whether the local backup differs from server draft
+      if (!hasLocalBackupChanges(activeChapter, backup.patch)) {
+        await clearLocalDraftBackup(activeChapter.id);
+        if (!cancelled) setPendingBackup(false);
+        return;
+      }
+
+      // Restore unsynced local changes into editor and immediately upload to Supabase
+      setPendingBackup(true);
+      onRecoverLocalBackupRef.current?.(
+        activeChapter.id,
+        backup.patch,
+        backup.baseUpdatedAt,
+      );
+      editSeqRef.current += 1;
+      const seq = editSeqRef.current;
+      pendingPayloadRef.current = {
+        chapterId: activeChapter.id,
+        baseVersion: activeChapter.draftVersion,
+        baseUpdatedAt: activeChapter.updatedAt,
+        patch: backup.patch,
+        seq,
+      };
+      void commitToSupabase(
+        activeChapter.id,
+        activeChapter.draftVersion,
+        backup.patch,
+        false,
+        seq,
+      );
     });
     return () => {
       cancelled = true;
     };
-  }, [activeChapter?.id]);
+  }, [activeChapter?.id, commitToSupabase]);
 
   // Online / Offline reconnection auto-sync (no Realtime background overwrite)
   useEffect(() => {
@@ -386,7 +517,7 @@ export function useStudioAutosave({
     setSaveState('saved');
   }, [conflict, onChapterSynced]);
 
-  const resolveConflictKeepMine = useCallback(async (): Promise<StudioChapter | null> => {
+  const resolveConflictKeepMine = useCallback(async (): Promise<FlushSaveResult> => {
     return flushSave(true);
   }, [flushSave]);
 
@@ -408,6 +539,7 @@ export function useStudioAutosave({
     saveError,
     conflict,
     pendingBackup,
+    hasPendingChanges: Boolean(pendingPayloadRef.current),
     scheduleSave,
     flushSave,
     resolveConflictUseServer,

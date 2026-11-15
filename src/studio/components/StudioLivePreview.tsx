@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { VisualEffectsLayer } from '../../components/VisualEffectsLayer';
 import { audioMap } from '../../data/audioMap';
+import { useReaderCues } from '../../hooks/useReaderCues';
 import { audioManager } from '../../services/audioManager';
 import type { Chapter } from '../../types/novel';
 import { buildChapterHtml } from '../../utils/chapterHtml';
@@ -85,6 +86,8 @@ export function StudioLivePreview({
     ),
   );
   const [audioPlaying, setAudioPlaying] = useState(false);
+  const stageRef = useRef<HTMLDivElement | null>(null);
+  const contentRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const idx = chapters.findIndex((c) => c.id === activeChapter.id);
@@ -112,6 +115,13 @@ export function StudioLivePreview({
     () => (readerChapter ? buildChapterHtml(readerChapter) : ''),
     [readerChapter],
   );
+
+  useReaderCues({
+    containerRef: contentRef,
+    contentKey: `${readerChapter?.id ?? 'none'}:${renderedHtml.length}`,
+    enabled: Boolean(readerChapter),
+    scrollRootRef: stageRef,
+  });
 
   const toggleBgm = () => {
     if (!readerChapter) return;
@@ -254,6 +264,7 @@ export function StudioLivePreview({
       </div>
 
       <div
+        ref={stageRef}
         className={`studio-preview-stage theme-${previewTheme}`}
         data-theme={previewTheme}
       >
@@ -275,6 +286,7 @@ export function StudioLivePreview({
         ) : (
           <main className="reader-container studio-preview-reader">
             <div
+              ref={contentRef}
               className="chapter-content fade-in"
               dangerouslySetInnerHTML={{ __html: renderedHtml }}
             />
@@ -283,6 +295,8 @@ export function StudioLivePreview({
               effect={readerChapter.effect}
               triggerMode={readerChapter.vfxTrigger ?? 'immediate'}
               durationMs={readerChapter.vfxDurationMs}
+              scrollContainerRef={stageRef}
+              listenCueEvent={true}
             />
           </main>
         )}

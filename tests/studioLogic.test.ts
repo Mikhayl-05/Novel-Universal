@@ -5,6 +5,7 @@ import {
   createNewChapterPayload,
   detectVersionConflict,
   duplicateChapterPayload,
+  hasLocalBackupChanges,
   hasUnpublishedChanges,
   mergeSyncedChapterMetadata,
   moveChapterByDelta,
@@ -12,6 +13,7 @@ import {
   shouldClearPendingSave,
   shouldReloadEditorDocument,
 } from '../src/studio/utils/chapterOrdering';
+import { buildChapterHtml } from '../src/utils/chapterHtml';
 import {
   detectSlashTriggerText,
   filterSlashCommands,
@@ -382,3 +384,138 @@ test('slash command trigger detects `/` cleanly and filters novel blocks', () =>
   const bgmMatches = filterSlashCommands('musik');
   assert.ok(bgmMatches.some((item) => item.id === 'bgm'));
 });
+
+test('hasLocalBackupChanges detects real dirty diffs and ignores matching metadata', () => {
+  const baseChapter = createNewChapterPayload('novel-1', [], {
+    num: 'Bab 1',
+    title: 'Awal Mula',
+    setting: 'Stasiun Lama',
+    feeling: 'Tenang',
+    draftHtml: '<p>Paragraf pembuka.</p>',
+    draftBgm: 'about_you',
+    draftBgmUrl: null,
+  });
+
+  const identicalPatch = {
+    num: 'Bab 1',
+    title: 'Awal Mula',
+    setting: 'Stasiun Lama',
+    feeling: 'Tenang',
+    isPrologue: false,
+    isEnding: false,
+    draftHtml: '<p>Paragraf pembuka.</p>',
+    draftBgm: 'about_you',
+    draftBgmUrl: undefined as unknown as string | null,
+    draftBgmVolume: baseChapter.draftBgmVolume,
+    draftBgmLoop: baseChapter.draftBgmLoop,
+    draftEffect: baseChapter.draftEffect,
+    draftVfxTrigger: baseChapter.draftVfxTrigger,
+    draftVfxDurationMs: baseChapter.draftVfxDurationMs,
+  };
+  assert.equal(hasLocalBackupChanges(baseChapter, identicalPatch), false);
+
+  const emptyFeelingChapter = { ...baseChapter, feeling: '' };
+  assert.equal(
+    hasLocalBackupChanges(emptyFeelingChapter, { ...identicalPatch, feeling: '' }),
+    false,
+  );
+
+  assert.equal(
+    hasLocalBackupChanges(baseChapter, { ...identicalPatch, title: 'Judul Baru' }),
+    true,
+  );
+  assert.equal(
+    hasLocalBackupChanges(baseChapter, { ...identicalPatch, num: 'Bab I' }),
+    true,
+  );
+  assert.equal(
+    hasLocalBackupChanges(baseChapter, {
+      ...identicalPatch,
+      draftHtml: '<p>Revisi cepat</p>',
+    }),
+    true,
+  );
+  assert.equal(
+    hasLocalBackupChanges(baseChapter, { ...identicalPatch, draftBgm: 'iris' }),
+    true,
+  );
+  assert.equal(
+    hasLocalBackupChanges(baseChapter, {
+      ...identicalPatch,
+      draftBgmUrl: 'https://cdn.example.com/music.mp3',
+    }),
+    true,
+  );
+});
+
+test('buildChapterHtml escapes metadata and omits empty setting marker', () => {
+  const htmlWithXss = buildChapterHtml({
+    id: 'ch-xss',
+    num: '<script>alert(1)</script>',
+    title: 'Malam & <Bintang>',
+    setting: '  Kafe <Sudut>  ',
+    feeling: '<b>Rindu</b>',
+    bgm: 'default',
+    content: '<p>Isi aman</p>',
+    isPrologue: false,
+    isEnding: false,
+  });
+
+  assert.ok(htmlWithXss.includes('&lt;script&gt;alert(1)&lt;/script&gt;'));
+  assert.ok(htmlWithXss.includes('Malam &amp; &lt;Bintang&gt;'));
+  assert.ok(htmlWithXss.includes('Kafe &lt;Sudut&gt;'));
+  assert.ok(htmlWithXss.includes('Suasana: &lt;b&gt;Rindu&lt;/b&gt;'));
+  assert.ok(!htmlWithXss.includes('<script>alert(1)</script>'));
+  assert.ok(htmlWithXss.includes('class="ch-setting"'));
+
+  const htmlWithoutSetting = buildChapterHtml({
+    id: 'ch-clean',
+    num: 'Bab 2',
+    title: 'Tanpa Latar',
+    setting: '   ',
+    feeling: '',
+    bgm: 'default',
+    content: '<p>Teks</p>',
+  });
+
+  assert.ok(!htmlWithoutSetting.includes('class="ch-setting"'));
+  assert.ok(!htmlWithoutSetting.includes('class="feeling-badge"'));
+});
+
+test('bgmCue actions pause and fadeout survive HTML serialization and re-parsing', () => {
+  const doc: TiptapDocJson = {
+    type: 'doc',
+    content: [
+      {
+        type: 'bgmCue',
+        attrs: {
+          bgmKey: 'default',
+          action: 'pause',
+          volume: 0.4,
+          loop: false,
+        },
+      },
+      {
+        type: 'bgmCue',
+        attrs: {
+          bgmKey: 'iris',
+          action: 'fadeout',
+          volume: 0.35,
+          loop: false,
+        },
+      },
+    ],
+  };
+
+  const serialized = serializeTiptapDocToReaderHtml(doc);
+  assert.ok(serialized.includes('data-bgm-action="pause"'));
+  assert.ok(serialized.includes('data-bgm-action="fadeout"'));
+
+  const reparsed = parseLegacyHtmlToTiptapDoc(serialized);
+  assert.equal(reparsed.content.length, 2);
+  assert.equal(reparsed.content[0].type, 'bgmCue');
+  assert.equal(reparsed.content[0].attrs?.action, 'pause');
+  assert.equal(reparsed.content[1].type, 'bgmCue');
+  assert.equal(reparsed.content[1].attrs?.action, 'fadeout');
+});
+

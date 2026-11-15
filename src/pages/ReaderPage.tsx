@@ -345,6 +345,7 @@ export function ReaderPage() {
         effect={displayedChapter.effect}
         triggerMode={displayedChapter.vfxTrigger}
         durationMs={displayedChapter.vfxDurationMs}
+        listenCueEvent={true}
       />
 
       <UpdateBanner visible={hasUpdate} onReload={applyUpdate} />

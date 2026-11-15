@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ChangeEvent } from 'react';
 import {
   NodeViewContent,
   NodeViewWrapper,
@@ -7,6 +7,7 @@ import {
 import {
   BookOpen,
   Image as ImageIcon,
+  ImagePlus,
   Music,
   Play,
   Sparkles,
@@ -17,7 +18,15 @@ import {
 import { audioMap } from '../../data/audioMap';
 import { audioManager } from '../../services/audioManager';
 import type { BgmKey, VfxKey } from '../../types/novel';
+import { uploadCoverImageFile } from '../services/studioRepository';
 import type { NarrativeVariant } from '../types/studio';
+
+const SFX_PRESETS: ReadonlyArray<{ label: string; url: string }> = [
+  { label: 'Pilih Preset Audio…', url: '' },
+  { label: 'Chime Lembut (Cute)', url: '/audio/cute.mp3' },
+  { label: 'Napas Hening (Breathe)', url: '/audio/breathe.mp3' },
+  { label: 'Gema Lembut (Somebody)', url: '/audio/somebody.mp3' },
+];
 
 export const BGM_OPTIONS: ReadonlyArray<{ value: BgmKey; label: string }> = [
   { value: 'default', label: 'Default Playlist (default_1 / default_2)' },
@@ -247,6 +256,20 @@ export function SfxBlockView({
           value={cueName}
           onChange={(e) => updateAttributes({ cueName: e.target.value })}
         />
+        <select
+          className="studio-block-inline-select"
+          aria-label="Preset SFX bawaan"
+          value={SFX_PRESETS.some((p) => p.url === audioUrl) ? audioUrl : ''}
+          onChange={(e) => {
+            if (e.target.value) updateAttributes({ audioUrl: e.target.value });
+          }}
+        >
+          {SFX_PRESETS.map((p) => (
+            <option key={p.label} value={p.url}>
+              {p.label}
+            </option>
+          ))}
+        </select>
         <input
           type="text"
           className="studio-block-inline-input"
@@ -437,7 +460,9 @@ export function BgmCueView({
         >
           <option value="play">Putar</option>
           <option value="crossfade">Crossfade</option>
-          <option value="stop">Hentikan</option>
+          <option value="pause">Jeda (Pause)</option>
+          <option value="fadeout">Fade Out &amp; Stop</option>
+          <option value="stop">Hentikan Seketika</option>
         </select>
         <label className="studio-cue-check">
           <input
@@ -536,10 +561,32 @@ export function ImageBlockView({
   selected,
 }: NodeViewProps) {
   const [imgError, setImgError] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadErr, setUploadErr] = useState<string | null>(null);
   const src = String(node.attrs.src ?? '');
   const alt = String(node.attrs.alt ?? '');
   const caption = String(node.attrs.caption ?? '');
   const width = String(node.attrs.width ?? 'normal');
+
+  const handleUploadImage = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setUploading(true);
+    setUploadErr(null);
+    setImgError(false);
+    try {
+      const publicUrl = await uploadCoverImageFile(file);
+      updateAttributes({
+        src: publicUrl,
+        alt: alt || file.name.replace(/\.[^/.]+$/, ''),
+      });
+    } catch (err) {
+      setUploadErr(err instanceof Error ? err.message : 'Gagal mengunggah gambar.');
+    } finally {
+      setUploading(false);
+    }
+  };
 
   return (
     <NodeViewWrapper
@@ -550,6 +597,17 @@ export function ImageBlockView({
         <span className="studio-block-kind">
           <ImageIcon size={12} /> Gambar
         </span>
+        <label className="studio-cue-btn studio-block-upload-label" title="Upload gambar dari perangkat">
+          <ImagePlus size={12} />
+          <span>{uploading ? '…' : 'Upload'}</span>
+          <input
+            type="file"
+            accept="image/*"
+            hidden
+            disabled={uploading}
+            onChange={(e) => void handleUploadImage(e)}
+          />
+        </label>
         <input
           type="text"
           className="studio-block-inline-input"
@@ -558,6 +616,7 @@ export function ImageBlockView({
           value={src}
           onChange={(e) => {
             setImgError(false);
+            setUploadErr(null);
             updateAttributes({ src: e.target.value });
           }}
         />
@@ -581,6 +640,7 @@ export function ImageBlockView({
           <Trash2 size={13} />
         </button>
       </div>
+      {uploadErr && <p className="studio-inline-error">{uploadErr}</p>}
       <div className={`studio-image-preview width-${width}`}>
         {src && !imgError ? (
           <img
@@ -594,8 +654,8 @@ export function ImageBlockView({
             <ImageIcon size={24} />
             <span>
               {src
-                ? 'Gambar tidak dapat dimuat. Periksa URL aset.'
-                : 'Masukkan URL gambar di atas.'}
+                ? 'Gambar tidak dapat dimuat. Periksa URL atau upload file baru.'
+                : 'Klik Upload atau masukkan URL gambar di atas.'}
             </span>
           </div>
         )}

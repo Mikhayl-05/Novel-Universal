@@ -9,6 +9,7 @@ import type {
   StudioChapterAsset,
   StudioChapterRevision,
   StudioNovel,
+  StudioNovelSummary,
   TiptapDocJson,
   VfxTriggerMode,
 } from '../types/studio';
@@ -342,9 +343,86 @@ export async function fetchNovels(): Promise<StudioNovel[]> {
   const { data, error } = await supabase
     .from('novels')
     .select('*')
-    .order('created_at', { ascending: true });
+    .order('updated_at', { ascending: false });
   if (error) throw new Error(error.message);
   return (data as DbNovelRow[]).map(mapNovelRow);
+}
+
+export async function fetchNovelsWithStats(): Promise<StudioNovelSummary[]> {
+  const supabase = requireSupabaseClient();
+  const { data: novelsData, error: novelsErr } = await supabase
+    .from('novels')
+    .select('*')
+    .order('updated_at', { ascending: false });
+  if (novelsErr) throw new Error(novelsErr.message);
+
+  const novelList = (novelsData as DbNovelRow[]).map(mapNovelRow);
+  if (novelList.length === 0) return [];
+
+  const { data: chapterRows, error: chErr } = await supabase
+    .from('chapters')
+    .select('id, novel_id, status, num, title, updated_at')
+    .in(
+      'novel_id',
+      novelList.map((n) => n.id),
+    )
+    .order('updated_at', { ascending: false });
+
+  if (chErr) throw new Error(chErr.message);
+
+  const grouped = new Map<
+    string,
+    {
+      chapterCount: number;
+      publishedCount: number;
+      draftCount: number;
+      latestChapterId: string | null;
+      latestChapterNum: string | null;
+      latestChapterTitle: string | null;
+      latestUpdatedAt: string | null;
+    }
+  >();
+
+  for (const row of chapterRows || []) {
+    if (row.status === 'archived') continue;
+    const prev = grouped.get(row.novel_id);
+    if (!prev) {
+      grouped.set(row.novel_id, {
+        chapterCount: 1,
+        publishedCount: row.status === 'published' ? 1 : 0,
+        draftCount: row.status === 'draft' ? 1 : 0,
+        latestChapterId: row.id,
+        latestChapterNum: row.num,
+        latestChapterTitle: row.title,
+        latestUpdatedAt: row.updated_at,
+      });
+    } else {
+      prev.chapterCount += 1;
+      if (row.status === 'published') prev.publishedCount += 1;
+      if (row.status === 'draft') prev.draftCount += 1;
+    }
+  }
+
+  return novelList
+    .map((novel) => {
+      const stats = grouped.get(novel.id);
+      const lastActivityAt =
+        stats?.latestUpdatedAt &&
+        Date.parse(stats.latestUpdatedAt) > Date.parse(novel.updatedAt)
+          ? stats.latestUpdatedAt
+          : novel.updatedAt;
+      return {
+        ...novel,
+        chapterCount: stats?.chapterCount ?? 0,
+        publishedCount: stats?.publishedCount ?? 0,
+        draftCount: stats?.draftCount ?? 0,
+        latestChapterId: stats?.latestChapterId ?? null,
+        latestChapterNum: stats?.latestChapterNum ?? null,
+        latestChapterTitle: stats?.latestChapterTitle ?? null,
+        lastActivityAt,
+      };
+    })
+    .sort((a, b) => Date.parse(b.lastActivityAt) - Date.parse(a.lastActivityAt));
 }
 
 export async function createNovel(input: {

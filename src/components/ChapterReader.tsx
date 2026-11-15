@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import type { ChapterTransitionPhase } from '../hooks/useChapterNavigation';
+import { useReaderCues } from '../hooks/useReaderCues';
 import type { Chapter, PublishedWork } from '../types/novel';
 import { stripHtmlToText } from '../utils/chapterHtml';
 import { findFirstMatchingParagraph } from '../utils/searchEngine';
@@ -44,6 +45,12 @@ export function ChapterReader({
   const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onHighlightConsumedRef = useRef(onHighlightConsumed);
   onHighlightConsumedRef.current = onHighlightConsumed;
+
+  useReaderCues({
+    containerRef: articleRef,
+    contentKey: `${chapter.id}:${chapterHtml.length}`,
+    enabled: true,
+  });
 
   const isPrologue = !!chapter.isPrologue;
   const metaThemeClass = isPrologue ? 'theme-prologue' : 'theme-main';

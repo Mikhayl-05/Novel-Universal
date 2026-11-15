@@ -13,6 +13,9 @@ interface StudioMenuBarProps {
   showInspector: boolean;
   showRuler: boolean;
   marginPreset: MarginPreset;
+  findOpen?: boolean;
+  onSetFindOpen?: (open: boolean) => void;
+  onBackToHub?: () => void;
   onSaveNow: () => void;
   onRefreshFromServer: () => void;
   onNewChapter: () => void;
@@ -41,6 +44,9 @@ export function StudioMenuBar({
   showInspector,
   showRuler,
   marginPreset,
+  findOpen: findOpenProp,
+  onSetFindOpen,
+  onBackToHub,
   onSaveNow,
   onRefreshFromServer,
   onNewChapter,
@@ -64,7 +70,16 @@ export function StudioMenuBar({
   const [dropdownPos, setDropdownPos] = useState<{ left: number; top: number } | null>(
     null,
   );
-  const [findOpen, setFindOpen] = useState(false);
+  const [internalFindOpen, setInternalFindOpen] = useState(false);
+  const findOpen = findOpenProp !== undefined ? findOpenProp : internalFindOpen;
+  const setFindOpen = (next: boolean | ((prev: boolean) => boolean)) => {
+    const resolved = typeof next === 'function' ? next(findOpen) : next;
+    if (onSetFindOpen) {
+      onSetFindOpen(resolved);
+    } else {
+      setInternalFindOpen(resolved);
+    }
+  };
   const [findQuery, setFindQuery] = useState('');
   const [replaceQuery, setReplaceQuery] = useState('');
   const [findStatus, setFindStatus] = useState<string>('');
@@ -250,6 +265,14 @@ export function StudioMenuBar({
         >
           {openMenu === 'file' && (
             <>
+              {onBackToHub && (
+                <>
+                  <button type="button" role="menuitem" onClick={() => run(onBackToHub)}>
+                    <span>← Kembali ke Semua Proyek</span>
+                  </button>
+                  <div className="studio-menu-sep" />
+                </>
+              )}
               <button type="button" role="menuitem" onClick={() => run(onNewChapter)}>
                 <span>Bab Baru</span>
               </button>

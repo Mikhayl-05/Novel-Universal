@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useEditor } from '@tiptap/react';
 import {
+  ArrowLeft,
   Check,
   CloudOff,
   ExternalLink,
@@ -12,17 +13,26 @@ import {
   PanelLeft,
   PanelRight,
   RefreshCw,
+  Save,
   Sun,
   UploadCloud,
+  X,
 } from 'lucide-react';
 import { VisualEffectsLayer } from '../../components/VisualEffectsLayer';
 import type { VfxKey, WorkType } from '../../types/novel';
 import { AdminLoginView } from '../components/AdminLoginView';
 import { DocumentWorkspaceCanvas } from '../components/DocumentWorkspaceCanvas';
 import { SlashCommandMenu } from '../components/SlashCommandMenu';
+import { StudioHubView } from '../components/StudioHubView';
 import { StudioInspectorPanel } from '../components/StudioInspectorPanel';
 import { StudioLivePreview } from '../components/StudioLivePreview';
 import { StudioMenuBar } from '../components/StudioMenuBar';
+import {
+  StudioMobileDock,
+  StudioMobileFormatSheet,
+  StudioMobileMoreSheet,
+  type MobileSheetKind,
+} from '../components/StudioMobileDock';
 import {
   ConflictBanner,
   DeleteChapterModal,
@@ -45,21 +55,24 @@ import {
   deleteNovelById,
   fetchChapterById,
   fetchChaptersByNovel,
-  fetchNovels,
+  fetchNovelsWithStats,
   insertChapter,
   persistChapterSortOrders,
   publishChapterRpc,
   updateChapterStatusById,
   updateNovel,
+  type SaveDraftPatch,
 } from '../services/studioRepository';
 import type {
   DocumentOutlineItem,
+  FlushSaveResult,
   MarginPreset,
   NovelStatus,
   StudioChapter,
   StudioChapterAsset,
   StudioChapterRevision,
   StudioNovel,
+  StudioNovelSummary,
   StudioViewMode,
   TiptapDocJson,
 } from '../types/studio';
@@ -80,6 +93,23 @@ import {
 
 const STUDIO_THEME_STORAGE_KEY = 'novel-studio-theme';
 
+function toSummaryFromNovel(
+  novel: StudioNovel,
+  chapterList: StudioChapter[] = [],
+): StudioNovelSummary {
+  const latest = chapterList[chapterList.length - 1] ?? null;
+  return {
+    ...novel,
+    chapterCount: chapterList.length,
+    publishedCount: chapterList.filter((c) => c.status === 'published').length,
+    draftCount: chapterList.filter((c) => c.status === 'draft').length,
+    latestChapterId: latest?.id ?? null,
+    latestChapterNum: latest?.num ?? null,
+    latestChapterTitle: latest?.title ?? null,
+    lastActivityAt: latest?.updatedAt ?? novel.updatedAt,
+  };
+}
+
 export function NovelStudioPage() {
   const auth = useStudioAuth();
 
@@ -90,7 +120,13 @@ export function NovelStudioPage() {
       : 'dark';
   });
 
-  const [novels, setNovels] = useState<StudioNovel[]>([]);
+  const [isMobileViewport, setIsMobileViewport] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth <= 768 : false,
+  );
+  const [studioScreen, setStudioScreen] = useState<'hub' | 'workspace'>('hub');
+  const [novels, setNovels] = useState<StudioNovelSummary[]>([]);
+  const [loadingHub, setLoadingHub] = useState(false);
+
   const [activeNovelId, setActiveNovelId] = useState<string | null>(null);
   const [chapters, setChapters] = useState<StudioChapter[]>([]);
   const [activeChapterId, setActiveChapterId] = useState<string | null>(null);
@@ -105,6 +141,8 @@ export function NovelStudioPage() {
     typeof window !== 'undefined' ? window.innerWidth >= 1180 : true,
   );
   const [showRuler, setShowRuler] = useState(true);
+  const [mobileSheet, setMobileSheet] = useState<MobileSheetKind>(null);
+  const [findOpen, setFindOpen] = useState(false);
 
   const [publishOpen, setPublishOpen] = useState(false);
   const [publishing, setPublishing] = useState(false);
@@ -112,7 +150,7 @@ export function NovelStudioPage() {
   const [deleting, setDeleting] = useState(false);
   const [newNovelOpen, setNewNovelOpen] = useState(false);
   const [creatingNovel, setCreatingNovel] = useState(false);
-  const [workSettingsOpen, setWorkSettingsOpen] = useState(false);
+  const [workSettingsTarget, setWorkSettingsTarget] = useState<StudioNovel | null>(null);
   const [savingWorkSettings, setSavingWorkSettings] = useState(false);
   const [linkModalOpen, setLinkModalOpen] = useState(false);
   const [linkInitialHref, setLinkInitialHref] = useState('');
@@ -128,8 +166,9 @@ export function NovelStudioPage() {
   } | null>(null);
 
   const isProgrammaticLoadRef = useRef(false);
+  const chaptersRef = useRef<StudioChapter[]>([]);
   const activeChapterRef = useRef<StudioChapter | null>(null);
-  const flushSaveRef = useRef<((forceOverwrite?: boolean) => Promise<StudioChapter | null>) | null>(null);
+  const handleManualSaveRef = useRef<(() => Promise<void>) | null>(null);
   const slashKeyDownRef = useRef<((key: string) => boolean) | null>(null);
 
   const activeNovel = useMemo(
@@ -141,7 +180,33 @@ export function NovelStudioPage() {
     () => chapters.find((c) => c.id === activeChapterId) ?? chapters[0] ?? null,
     [chapters, activeChapterId],
   );
+  chaptersRef.current = chapters;
   activeChapterRef.current = activeChapter;
+
+  const commitChaptersState = useCallback(
+    (next: StudioChapter[] | ((prev: StudioChapter[]) => StudioChapter[])) => {
+      const resolved =
+        typeof next === 'function' ? next(chaptersRef.current) : next;
+      chaptersRef.current = resolved;
+      setChapters(resolved);
+      return resolved;
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const mq = window.matchMedia('(max-width: 768px)');
+    const sync = () => {
+      setIsMobileViewport(mq.matches);
+      if (!mq.matches) {
+        setMobileSheet(null);
+      }
+    };
+    sync();
+    mq.addEventListener('change', sync);
+    return () => mq.removeEventListener('change', sync);
+  }, []);
 
   const toggleStudioTheme = useCallback(() => {
     setStudioTheme((prev) => {
@@ -168,7 +233,11 @@ export function NovelStudioPage() {
     document.body.classList.add('studio-mode');
     document.title = 'Ruang Karya — Studio Editor';
     return () => {
-      document.body.classList.remove('studio-mode', 'studio-theme-dark', 'studio-theme-light');
+      document.body.classList.remove(
+        'studio-mode',
+        'studio-theme-dark',
+        'studio-theme-light',
+      );
     };
   }, []);
 
@@ -177,7 +246,7 @@ export function NovelStudioPage() {
     document.body.classList.toggle('studio-theme-light', studioTheme === 'light');
   }, [studioTheme]);
 
-  // Listen to VFX test triggers inside studio
+  // Listen to VFX test triggers inside studio editor
   useEffect(() => {
     const handler = (ev: Event) => {
       const detail = (ev as CustomEvent<{ effect?: VfxKey; durationMs?: number }>)
@@ -199,7 +268,7 @@ export function NovelStudioPage() {
       preserveNewerLocalEdits: boolean,
       forceReloadEditor = false,
     ) => {
-      setChapters((prev) =>
+      commitChaptersState((prev) =>
         prev.map((c) =>
           c.id === synced.id
             ? mergeSyncedChapterMetadata(c, synced, preserveNewerLocalEdits)
@@ -210,50 +279,94 @@ export function NovelStudioPage() {
         setEditorReloadCounter((n) => n + 1);
       }
     },
-    [],
+    [commitChaptersState],
+  );
+
+  const handleRecoverLocalBackup = useCallback(
+    (chapterId: string, patch: SaveDraftPatch, _baseUpdatedAt: string) => {
+      commitChaptersState((prev) =>
+        prev.map((ch) =>
+          ch.id === chapterId
+            ? {
+                ...ch,
+                ...patch,
+              }
+            : ch,
+        ),
+      );
+      setEditorReloadCounter((n) => n + 1);
+      showNotice('Perubahan lokal yang sempat tertunda dipulihkan & disinkronkan…');
+    },
+    [commitChaptersState, showNotice],
   );
 
   const autosave = useStudioAutosave({
     novelId: activeNovelId,
     activeChapter,
     onChapterSynced: handleChapterSynced,
+    onRecoverLocalBackup: handleRecoverLocalBackup,
   });
-  flushSaveRef.current = autosave.flushSave;
+
+  const reportSaveResult = useCallback(
+    (res: FlushSaveResult) => {
+      if (res.status === 'saved') {
+        showNotice('Tersimpan ke Supabase.');
+      } else if (res.status === 'noop') {
+        showNotice(res.message || 'Semua perubahan sudah tersimpan di Supabase.');
+      } else if (res.status === 'offline') {
+        showNotice(
+          res.message || 'Sedang offline. Perubahan aman di penyimpanan lokal.',
+        );
+      } else if (res.status === 'conflict') {
+        showNotice(
+          res.message || 'Konflik versi terdeteksi. Pilih tindakan di banner.',
+        );
+      } else {
+        showNotice(res.message || 'Gagal menyinkronkan ke Supabase.');
+      }
+    },
+    [showNotice],
+  );
+
+  const handleManualSave = useCallback(async () => {
+    const result = await autosave.flushSave();
+    reportSaveResult(result);
+  }, [autosave, reportSaveResult]);
+  handleManualSaveRef.current = handleManualSave;
 
   const updateChapterLocalAndQueueSave = useCallback(
     (chapterId: string, updater: (prev: StudioChapter) => StudioChapter) => {
-      let updatedChapter: StudioChapter | null = null;
-      setChapters((prev) =>
-        prev.map((ch) => {
-          if (ch.id !== chapterId) return ch;
-          updatedChapter = updater(ch);
-          return updatedChapter;
-        }),
-      );
+      const target = chaptersRef.current.find((c) => c.id === chapterId);
+      if (!target) return;
+      const updated = updater(target);
 
-      if (updatedChapter) {
-        const ch = updatedChapter as StudioChapter;
-        autosave.scheduleSave(ch.id, ch.draftVersion, {
-          num: ch.num,
-          title: ch.title,
-          setting: ch.setting,
-          feeling: ch.feeling,
-          isPrologue: ch.isPrologue,
-          isEnding: ch.isEnding,
-          draftDoc: ch.draftDoc,
-          draftHtml: ch.draftHtml,
-          draftBgm: ch.draftBgm,
-          draftBgmUrl: ch.draftBgmUrl,
-          draftBgmVolume: ch.draftBgmVolume,
-          draftBgmLoop: ch.draftBgmLoop,
-          draftEffect: ch.draftEffect,
-          draftVfxTrigger: ch.draftVfxTrigger,
-          draftVfxDurationMs: ch.draftVfxDurationMs,
-          draftMetadata: ch.draftMetadata,
-        });
+      commitChaptersState((prev) =>
+        prev.map((ch) => (ch.id === chapterId ? updated : ch)),
+      );
+      if (activeChapterRef.current?.id === chapterId) {
+        activeChapterRef.current = updated;
       }
+
+      autosave.scheduleSave(updated.id, updated.draftVersion, {
+        num: updated.num,
+        title: updated.title,
+        setting: updated.setting,
+        feeling: updated.feeling,
+        isPrologue: updated.isPrologue,
+        isEnding: updated.isEnding,
+        draftDoc: updated.draftDoc,
+        draftHtml: updated.draftHtml,
+        draftBgm: updated.draftBgm,
+        draftBgmUrl: updated.draftBgmUrl,
+        draftBgmVolume: updated.draftBgmVolume,
+        draftBgmLoop: updated.draftBgmLoop,
+        draftEffect: updated.draftEffect,
+        draftVfxTrigger: updated.draftVfxTrigger,
+        draftVfxDurationMs: updated.draftVfxDurationMs,
+        draftMetadata: updated.draftMetadata,
+      });
     },
-    [autosave],
+    [autosave, commitChaptersState],
   );
 
   const openLinkModalFromEditor = useCallback(() => {
@@ -264,21 +377,14 @@ export function NovelStudioPage() {
     () =>
       createNovelEditorExtensions({
         onSaveShortcut: () => {
-          const flushPromise = flushSaveRef.current?.();
-          if (flushPromise) {
-            void flushPromise.then(() => {
-              showNotice('Draft tersimpan.');
-            });
-          } else {
-            showNotice('Draft tersimpan.');
-          }
+          void handleManualSaveRef.current?.();
         },
         onLinkShortcut: () => {
           openLinkModalFromEditor();
         },
         slashKeyDownRef,
       }),
-    [openLinkModalFromEditor, showNotice],
+    [openLinkModalFromEditor],
   );
 
   const editor = useEditor({
@@ -306,11 +412,11 @@ export function NovelStudioPage() {
     setLinkInitialHref(attrs.href || '');
   }, [linkModalOpen, editor]);
 
-  // Synchronize Tiptap editor ONLY when switching active chapter OR explicit reload/conflict resolution.
+  // Synchronize Tiptap editor ONLY when switching active chapter OR explicit reload/recovery.
   const loadedChapterIdRef = useRef<string | null>(null);
   const syncedReloadCounterRef = useRef<number>(0);
   useEffect(() => {
-    if (!editor || !activeChapter) return;
+    if (!editor || !activeChapter || studioScreen !== 'workspace') return;
     const shouldReload = shouldReloadEditorDocument({
       loadedChapterId: loadedChapterIdRef.current,
       nextChapterId: activeChapter.id,
@@ -327,81 +433,127 @@ export function NovelStudioPage() {
       emitUpdate: false,
     });
     isProgrammaticLoadRef.current = false;
-  }, [editor, activeChapter, editorReloadCounter]);
+  }, [editor, activeChapter, editorReloadCounter, studioScreen]);
 
-  // Load initial works & chapters once authenticated
+  const refreshHubWorks = useCallback(async () => {
+    setLoadingHub(true);
+    try {
+      const list = await fetchNovelsWithStats();
+      setNovels(list);
+    } catch (err) {
+      showNotice(
+        err instanceof Error ? err.message : 'Gagal memuat daftar karya.',
+      );
+    } finally {
+      setLoadingHub(false);
+    }
+  }, [showNotice]);
+
+  // Load project summaries for Beranda Studio once authenticated
   useEffect(() => {
     if (auth.status !== 'authenticated') {
       setNovels([]);
-      setChapters([]);
+      commitChaptersState([]);
       setActiveNovelId(null);
       setActiveChapterId(null);
+      setStudioScreen('hub');
       return;
     }
 
     let cancelled = false;
-    setLoadingWorkspace(true);
-    void fetchNovels()
-      .then(async (list) => {
-        if (cancelled) return;
-        setNovels(list);
-        if (list.length > 0) {
-          const targetNovelId = list[0].id;
-          setActiveNovelId(targetNovelId);
-          const chList = await fetchChaptersByNovel(targetNovelId);
-          if (cancelled) return;
-          setChapters(chList);
-          setActiveChapterId(chList[0]?.id ?? null);
+    setLoadingHub(true);
+    void fetchNovelsWithStats()
+      .then((list) => {
+        if (!cancelled) {
+          setNovels(list);
         }
       })
       .catch((err) => {
         if (!cancelled) {
-          showNotice(err instanceof Error ? err.message : 'Gagal memuat daftar karya.');
+          showNotice(
+            err instanceof Error ? err.message : 'Gagal memuat daftar karya.',
+          );
         }
       })
       .finally(() => {
-        if (!cancelled) setLoadingWorkspace(false);
+        if (!cancelled) setLoadingHub(false);
       });
 
     return () => {
       cancelled = true;
     };
-  }, [auth.status, showNotice]);
+  }, [auth.status, commitChaptersState, showNotice]);
 
-  // Global Ctrl+S fallback
+  // Global Ctrl/Cmd+S shortcut
   useEffect(() => {
-    if (auth.status !== 'authenticated') return;
+    if (auth.status !== 'authenticated' || studioScreen !== 'workspace') return;
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
         e.preventDefault();
-        void autosave.flushSave().then(() => {
-          showNotice('Draft tersimpan ke server.');
-        });
+        void handleManualSave();
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [auth.status, autosave, showNotice]);
+  }, [auth.status, studioScreen, handleManualSave]);
+
+  const openNovelInWorkspace = useCallback(
+    async (novelId: string, preferredChapterId?: string | null) => {
+      if (studioScreen === 'workspace' && activeChapterRef.current) {
+        await autosave.flushSave();
+      }
+      setActiveNovelId(novelId);
+      setLoadingWorkspace(true);
+      setStudioScreen('workspace');
+      setViewMode('editor');
+      setMobileSheet(null);
+      try {
+        const chList = await fetchChaptersByNovel(novelId);
+        commitChaptersState(chList);
+        const focusChapter =
+          (preferredChapterId &&
+            chList.find((c) => c.id === preferredChapterId)) ||
+          chList[0] ||
+          null;
+        setActiveChapterId(focusChapter?.id ?? null);
+        setEditorReloadCounter((n) => n + 1);
+      } catch (err) {
+        showNotice(
+          err instanceof Error ? err.message : 'Gagal memuat naskah karya.',
+        );
+      } finally {
+        setLoadingWorkspace(false);
+      }
+    },
+    [autosave, commitChaptersState, showNotice, studioScreen],
+  );
+
+  const handleBackToHub = useCallback(async () => {
+    await autosave.flushSave();
+    setMobileSheet(null);
+    setFindOpen(false);
+    setViewMode('editor');
+    setStudioScreen('hub');
+    void refreshHubWorks();
+  }, [autosave, refreshHubWorks]);
 
   const handleSelectNovel = async (novelId: string) => {
     if (!novelId || novelId === activeNovelId) return;
-    await autosave.flushSave();
-    setActiveNovelId(novelId);
-    setLoadingWorkspace(true);
-    try {
-      const chList = await fetchChaptersByNovel(novelId);
-      setChapters(chList);
-      setActiveChapterId(chList[0]?.id ?? null);
-    } finally {
-      setLoadingWorkspace(false);
-    }
+    await openNovelInWorkspace(novelId);
   };
 
   const handleSelectChapter = async (chapterId: string) => {
-    if (chapterId === activeChapterId) return;
+    if (chapterId === activeChapterId) {
+      setMobileSheet(null);
+      return;
+    }
     await autosave.flushSave();
     setActiveChapterId(chapterId);
-    if (window.innerWidth < 960) setShowSidebar(false);
+    if (isMobileViewport) {
+      setMobileSheet(null);
+    } else if (window.innerWidth < 960) {
+      setShowSidebar(false);
+    }
   };
 
   const handleNewChapter = async () => {
@@ -414,9 +566,10 @@ export function NovelStudioPage() {
       workType: activeNovel?.workType ?? 'novel',
     });
     const saved = await insertChapter(payload);
-    setChapters((prev) => [...prev, saved]);
+    commitChaptersState((prev) => [...prev, saved]);
     setActiveChapterId(saved.id);
     setViewMode('editor');
+    setMobileSheet(null);
     showNotice(`Bagian baru "${saved.num}" dibuat.`);
   };
 
@@ -425,7 +578,7 @@ export function NovelStudioPage() {
     const { duplicated, reordered } = duplicateChapterPayload(source, chapters);
     const saved = await insertChapter(duplicated);
     const nextList = reordered.map((c) => (c.id === duplicated.id ? saved : c));
-    setChapters(nextList);
+    commitChaptersState(nextList);
     await persistChapterSortOrders(
       nextList.map((c) => ({ id: c.id, sortOrder: c.sortOrder })),
     );
@@ -441,7 +594,9 @@ export function NovelStudioPage() {
           : 'draft'
         : 'archived';
     const updated = await updateChapterStatusById(target.id, nextStatus);
-    setChapters((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
+    commitChaptersState((prev) =>
+      prev.map((c) => (c.id === updated.id ? updated : c)),
+    );
     showNotice(
       nextStatus === 'archived'
         ? `"${updated.title}" diarsipkan.`
@@ -454,7 +609,7 @@ export function NovelStudioPage() {
     try {
       await deleteChapterById(target.id);
       const remaining = chapters.filter((c) => c.id !== target.id);
-      setChapters(remaining);
+      commitChaptersState(remaining);
       if (activeChapterId === target.id) {
         setActiveChapterId(remaining[0]?.id ?? null);
       }
@@ -467,7 +622,7 @@ export function NovelStudioPage() {
 
   const handleReorderChapters = async (draggedId: string, targetId: string) => {
     const reordered = reorderChaptersByIds(chapters, draggedId, targetId);
-    setChapters(reordered);
+    commitChaptersState(reordered);
     await persistChapterSortOrders(
       reordered.map((c) => ({ id: c.id, sortOrder: c.sortOrder })),
     );
@@ -475,7 +630,7 @@ export function NovelStudioPage() {
 
   const handleMoveChapterDelta = async (chapterId: string, delta: -1 | 1) => {
     const reordered = moveChapterByDelta(chapters, chapterId, delta);
-    setChapters(reordered);
+    commitChaptersState(reordered);
     await persistChapterSortOrders(
       reordered.map((c) => ({ id: c.id, sortOrder: c.sortOrder })),
     );
@@ -485,10 +640,18 @@ export function NovelStudioPage() {
     if (!activeChapter) return;
     setPublishing(true);
     try {
-      await autosave.flushSave();
+      const saveResult = await autosave.flushSave();
+      if (
+        saveResult.status === 'conflict' ||
+        saveResult.status === 'offline' ||
+        saveResult.status === 'error'
+      ) {
+        reportSaveResult(saveResult);
+        return;
+      }
       const published = await publishChapterRpc(activeChapter.id);
       await createChapterRevision(published, 'publish').catch(() => {});
-      setChapters((prev) =>
+      commitChaptersState((prev) =>
         prev.map((c) => (c.id === published.id ? published : c)),
       );
       setPublishOpen(false);
@@ -527,8 +690,8 @@ export function NovelStudioPage() {
     }));
 
     const flushed = await autosave.flushSave();
-    if (flushed) {
-      await createChapterRevision(flushed, 'restore').catch(() => {});
+    if (flushed.status === 'saved' && flushed.chapter) {
+      await createChapterRevision(flushed.chapter, 'restore').catch(() => {});
     }
     showNotice(`Versi #${rev.revisionNumber} dipulihkan ke draft aktif.`);
   };
@@ -564,7 +727,9 @@ export function NovelStudioPage() {
               content: [
                 {
                   type: 'paragraph',
-                  content: [{ type: 'text', text: 'Tulis adegan naratif khusus...' }],
+                  content: [
+                    { type: 'text', text: 'Tulis adegan naratif khusus...' },
+                  ],
                 },
               ],
             })
@@ -672,6 +837,7 @@ export function NovelStudioPage() {
           },
         })
         .run();
+      if (isMobileViewport) setMobileSheet(null);
       showNotice(`Gambar "${asset.label}" disisipkan.`);
     } else if (asset.assetType === 'sfx') {
       editor
@@ -687,6 +853,7 @@ export function NovelStudioPage() {
           },
         })
         .run();
+      if (isMobileViewport) setMobileSheet(null);
       showNotice(`SFX "${asset.label}" disisipkan.`);
     }
   };
@@ -702,6 +869,7 @@ export function NovelStudioPage() {
       currentTopIndex += 1;
     });
     editor.chain().focus().setTextSelection(targetPos).scrollIntoView().run();
+    if (isMobileViewport) setMobileSheet(null);
   };
 
   const handleCreateWork = async (input: {
@@ -716,7 +884,6 @@ export function NovelStudioPage() {
     setCreatingNovel(true);
     try {
       const created = await createNovel(input);
-      // Automatically create an initial opening chapter/story/note so the writer starts immediately
       const starterPayload = createNewChapterPayload(created.id, [], {
         workType: created.workType,
         num:
@@ -729,10 +896,14 @@ export function NovelStudioPage() {
       });
       const starterChapter = await insertChapter(starterPayload);
 
-      setNovels((prev) => [...prev, created]);
+      const summary = toSummaryFromNovel(created, [starterChapter]);
+      setNovels((prev) => [summary, ...prev]);
       setActiveNovelId(created.id);
-      setChapters([starterChapter]);
+      commitChaptersState([starterChapter]);
       setActiveChapterId(starterChapter.id);
+      setEditorReloadCounter((n) => n + 1);
+      setStudioScreen('workspace');
+      setViewMode('editor');
       setNewNovelOpen(false);
       showNotice(`Karya "${created.title}" berhasil dibuat.`);
     } catch (err) {
@@ -757,11 +928,15 @@ export function NovelStudioPage() {
     setSavingWorkSettings(true);
     try {
       const updated = await updateNovel(novelId, patch);
-      setNovels((prev) => prev.map((n) => (n.id === updated.id ? updated : n)));
-      setWorkSettingsOpen(false);
+      setNovels((prev) =>
+        prev.map((n) => (n.id === updated.id ? { ...n, ...updated } : n)),
+      );
+      setWorkSettingsTarget(null);
       showNotice(`Pengaturan "${updated.title}" diperbarui.`);
     } catch (err) {
-      showNotice(err instanceof Error ? err.message : 'Gagal menyimpan pengaturan karya.');
+      showNotice(
+        err instanceof Error ? err.message : 'Gagal menyimpan pengaturan karya.',
+      );
     } finally {
       setSavingWorkSettings(false);
     }
@@ -773,17 +948,12 @@ export function NovelStudioPage() {
       await deleteNovelById(target.id);
       const remaining = novels.filter((n) => n.id !== target.id);
       setNovels(remaining);
-      setWorkSettingsOpen(false);
-      if (remaining.length > 0) {
-        const nextNovel = remaining[0];
-        setActiveNovelId(nextNovel.id);
-        const chList = await fetchChaptersByNovel(nextNovel.id);
-        setChapters(chList);
-        setActiveChapterId(chList[0]?.id ?? null);
-      } else {
+      setWorkSettingsTarget(null);
+      if (activeNovelId === target.id) {
         setActiveNovelId(null);
-        setChapters([]);
+        commitChaptersState([]);
         setActiveChapterId(null);
+        setStudioScreen('hub');
       }
       showNotice(`Karya "${target.title}" dihapus permanen.`);
     } catch (err) {
@@ -796,7 +966,11 @@ export function NovelStudioPage() {
   const handleManualRefreshFromServer = async () => {
     if (!activeChapter) return;
     try {
-      await autosave.flushSave();
+      const saveResult = await autosave.flushSave();
+      if (saveResult.status === 'conflict') {
+        reportSaveResult(saveResult);
+        return;
+      }
       const fresh = await fetchChapterById(activeChapter.id);
       handleChapterSynced(fresh, false, true);
       showNotice('Bagian dimuat ulang dari Supabase.');
@@ -836,360 +1010,587 @@ export function NovelStudioPage() {
   const marginPreset: MarginPreset =
     activeChapter?.draftMetadata?.marginPreset ?? 'normal';
 
+  const isSaveBusy =
+    autosave.saveState === 'saving' || autosave.saveState === 'syncing';
+
   const saveStatusText =
     autosave.saveState === 'saving'
       ? 'Menyimpan…'
       : autosave.saveState === 'syncing'
-        ? 'Menyinkronkan ke cloud…'
+        ? 'Sinkronisasi…'
         : autosave.saveState === 'offline'
-          ? 'Offline (backup lokal aktif)'
+          ? 'Offline'
           : autosave.saveState === 'conflict'
-            ? 'Konflik versi terdeteksi'
+            ? 'Konflik versi'
             : autosave.saveState === 'error'
-              ? 'Gagal sinkron (mencoba ulang)'
+              ? 'Gagal sinkron'
               : autosave.lastSavedAt
                 ? `Tersimpan ${new Date(autosave.lastSavedAt).toLocaleTimeString('id-ID', {
                     hour: '2-digit',
                     minute: '2-digit',
                   })}`
-                : 'Semua perubahan tersimpan';
+                : 'Tersimpan';
+
+  const toggleMobileSheet = (target: Exclude<MobileSheetKind, null>) => {
+    setMobileSheet((prev) => (prev === target ? null : target));
+  };
 
   return (
-    <div
-      className={`studio-root studio-allow-select studio-theme-${studioTheme}`}
-    >
-      {/* Top Document Header Bar */}
-      <header className="studio-header">
-        <div className="studio-header-left">
-          <div className="studio-brand-mark" aria-hidden="true">
-            <span>✦</span>
-          </div>
-          <div className="studio-doc-heading">
-            <div className="studio-doc-title-row">
-              <span className="studio-app-name">Ruang Karya Studio</span>
-              <span className="studio-sep-dot" aria-hidden="true">
-                ·
-              </span>
-              <span className="studio-doc-active-name">
-                {activeChapter
-                  ? `${activeChapter.num}: ${activeChapter.title}`
-                  : activeNovel
-                    ? activeNovel.title
-                    : 'Belum ada karya dipilih'}
-              </span>
-            </div>
-            <div className="studio-save-status" role="status" aria-live="polite">
-              {autosave.saveState === 'saving' || autosave.saveState === 'syncing' ? (
-                <Loader2 size={12} className="studio-spin" />
-              ) : autosave.saveState === 'offline' ? (
-                <CloudOff size={12} />
-              ) : autosave.saveState === 'error' ? (
-                <RefreshCw size={12} />
-              ) : (
-                <Check size={12} />
-              )}
-              <span>{saveStatusText}</span>
-            </div>
-          </div>
-        </div>
+    <>
+      {studioScreen === 'hub' ? (
+        <StudioHubView
+          works={novels}
+          loading={loadingHub}
+          userEmail={auth.adminProfile?.email}
+          studioTheme={studioTheme}
+          onToggleTheme={toggleStudioTheme}
+          onSignOut={() => void auth.signOut()}
+          onOpenNewWork={() => setNewNovelOpen(true)}
+          onOpenWork={(work) =>
+            void openNovelInWorkspace(work.id, work.latestChapterId)
+          }
+          onOpenWorkSettings={(work) => setWorkSettingsTarget(work)}
+        />
+      ) : (
+        <div
+          className={`studio-root studio-allow-select studio-theme-${studioTheme}`}
+        >
+          {/* Top Document Header Bar */}
+          <header className="studio-header">
+            <div className="studio-header-left">
+              <button
+                type="button"
+                className="studio-btn studio-btn-secondary studio-btn-sm studio-hub-back-btn"
+                title="Kembali ke Beranda Studio (Semua Karya)"
+                aria-label="Kembali ke semua proyek"
+                onClick={() => void handleBackToHub()}
+              >
+                <ArrowLeft size={14} />
+                <span>Proyek</span>
+              </button>
 
-        <div className="studio-header-right">
-          <button
-            type="button"
-            className="studio-icon-btn"
-            title="Toggle Sidebar Karya"
-            aria-label="Toggle Sidebar Karya"
-            onClick={() => setShowSidebar((v) => !v)}
-          >
-            <PanelLeft size={16} />
-          </button>
-          <button
-            type="button"
-            className="studio-icon-btn"
-            title="Toggle Panel Inspektur"
-            aria-label="Toggle Panel Inspektur"
-            onClick={() => setShowInspector((v) => !v)}
-          >
-            <PanelRight size={16} />
-          </button>
-
-          <button
-            type="button"
-            className="studio-btn studio-btn-secondary studio-btn-sm studio-theme-toggle-btn"
-            title={
-              studioTheme === 'dark'
-                ? 'Beralih ke Mode Terang'
-                : 'Beralih ke Mode Gelap'
-            }
-            aria-label={
-              studioTheme === 'dark'
-                ? 'Beralih ke Mode Terang'
-                : 'Beralih ke Mode Gelap'
-            }
-            onClick={toggleStudioTheme}
-          >
-            {studioTheme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
-            <span className="studio-hide-xs">
-              {studioTheme === 'dark' ? 'Terang' : 'Gelap'}
-            </span>
-          </button>
-
-          <button
-            type="button"
-            className="studio-btn studio-btn-secondary studio-btn-sm"
-            disabled={!activeChapter}
-            onClick={() =>
-              setViewMode((m) => (m === 'editor' ? 'preview-chapter' : 'editor'))
-            }
-          >
-            <Eye size={14} />
-            <span>{viewMode === 'editor' ? 'Pratinjau' : 'Kembali Edit'}</span>
-          </button>
-
-          <button
-            type="button"
-            className="studio-btn studio-btn-primary studio-btn-sm"
-            disabled={!activeChapter}
-            onClick={() => setPublishOpen(true)}
-          >
-            <UploadCloud size={14} />
-            <span>Publikasikan</span>
-          </button>
-
-          <Link
-            to={activeNovel ? `/read/${activeNovel.slug}` : '/'}
-            className="studio-btn studio-btn-secondary studio-btn-sm"
-            title="Buka di Reader Publik"
-          >
-            <ExternalLink size={13} />
-            <span className="studio-hide-xs">Reader</span>
-          </Link>
-
-          <button
-            type="button"
-            className="studio-btn studio-btn-secondary studio-btn-sm"
-            title={`Keluar (${auth.adminProfile?.email ?? ''})`}
-            aria-label="Keluar dari Studio Editor"
-            onClick={() => void auth.signOut()}
-          >
-            <LogOut size={14} />
-            <span className="studio-hide-xs">Keluar</span>
-          </button>
-        </div>
-      </header>
-
-      {viewMode === 'editor' ? (
-        <>
-          <StudioMenuBar
-            editor={editor}
-            viewMode={viewMode}
-            studioTheme={studioTheme}
-            showSidebar={showSidebar}
-            showInspector={showInspector}
-            showRuler={showRuler}
-            marginPreset={marginPreset}
-            onSaveNow={() => {
-              void autosave.flushSave().then(() => showNotice('Draft tersimpan.'));
-            }}
-            onRefreshFromServer={() => void handleManualRefreshFromServer()}
-            onNewChapter={() => void handleNewChapter()}
-            onDuplicateChapter={() => {
-              if (activeChapter) void handleDuplicateChapter(activeChapter);
-            }}
-            onOpenNewNovel={() => setNewNovelOpen(true)}
-            onOpenWorkSettings={() => {
-              if (activeNovel) setWorkSettingsOpen(true);
-            }}
-            onOpenPublishModal={() => setPublishOpen(true)}
-            onToggleTheme={toggleStudioTheme}
-            onToggleSidebar={() => setShowSidebar((v) => !v)}
-            onToggleInspector={() => setShowInspector((v) => !v)}
-            onToggleRuler={() => setShowRuler((v) => !v)}
-            onChangeMarginPreset={(preset) => {
-              if (!activeChapter) return;
-              updateChapterLocalAndQueueSave(activeChapter.id, (prev) => ({
-                ...prev,
-                draftMetadata: {
-                  ...prev.draftMetadata,
-                  marginPreset: preset,
-                },
-              }));
-            }}
-            onChangeViewMode={setViewMode}
-            onInsertBlock={handleInsertBlock}
-            onOpenLinkModal={openLinkModalFromEditor}
-            onOpenWordCountModal={() => setWordCountOpen(true)}
-            onOpenShortcutsModal={() => setShortcutsOpen(true)}
-            onPrint={() => window.print()}
-          />
-
-          <StudioToolbar
-            editor={editor}
-            zoom={zoom}
-            onChangeZoom={setZoom}
-            onPrint={() => window.print()}
-            onOpenLinkModal={openLinkModalFromEditor}
-            onInsertBlock={handleInsertBlock}
-          />
-
-          {autosave.conflict && (
-            <ConflictBanner
-              conflict={autosave.conflict}
-              onUseServer={autosave.resolveConflictUseServer}
-              onKeepMine={autosave.resolveConflictKeepMine}
-              onDismiss={autosave.dismissConflict}
-            />
-          )}
-
-          {loadingWorkspace ? (
-            <div className="studio-loading-pane">
-              <Loader2 size={22} className="studio-spin" />
-              <span>Memuat perpustakaan karya dan naskah…</span>
-            </div>
-          ) : novels.length === 0 ? (
-            <div className="studio-empty-onboarding">
-              <h2>Selamat datang di Ruang Karya Studio</h2>
-              <p>
-                Belum ada karya di cloud database. Buat karya pertama Anda sekarang
-                — pilih Novel berseri, Cerpen utuh, atau Notes catatan, lalu lengkapi
-                sampul serta musik latar sesuai suasana.
-              </p>
-              <div className="studio-empty-actions">
-                <button
-                  type="button"
-                  className="studio-btn studio-btn-primary"
-                  onClick={() => setNewNovelOpen(true)}
-                >
-                  Buat Karya Pertama
-                </button>
-                <Link to="/" className="studio-btn studio-btn-secondary">
-                  Lihat Beranda Publik
-                </Link>
+              <div className="studio-doc-heading">
+                <div className="studio-doc-title-row">
+                  <span className="studio-app-name">
+                    {activeNovel?.title || 'Ruang Karya Studio'}
+                  </span>
+                  {activeChapter && (
+                    <>
+                      <span className="studio-sep-dot" aria-hidden="true">
+                        ·
+                      </span>
+                      <span className="studio-doc-active-name">
+                        {activeChapter.num}: {activeChapter.title}
+                      </span>
+                    </>
+                  )}
+                </div>
+                <div className="studio-save-status" role="status" aria-live="polite">
+                  {isSaveBusy ? (
+                    <Loader2 size={12} className="studio-spin" />
+                  ) : autosave.saveState === 'offline' ? (
+                    <CloudOff size={12} />
+                  ) : autosave.saveState === 'error' ? (
+                    <RefreshCw size={12} />
+                  ) : (
+                    <Check size={12} />
+                  )}
+                  <span className="tabular-nums">{saveStatusText}</span>
+                </div>
               </div>
             </div>
-          ) : (
-            <div className="studio-workspace">
-              {showSidebar && (
-                <StudioSidebar
-                  novels={novels}
-                  activeNovelId={activeNovelId}
-                  chapters={chapters}
-                  activeChapterId={activeChapter?.id ?? null}
-                  outline={outline}
-                  onSelectNovel={(id) => void handleSelectNovel(id)}
-                  onOpenNewNovel={() => setNewNovelOpen(true)}
-                  onOpenWorkSettings={() => setWorkSettingsOpen(true)}
-                  onSelectChapter={(id) => void handleSelectChapter(id)}
-                  onNewChapter={() => void handleNewChapter()}
-                  onDuplicateChapter={(ch) => void handleDuplicateChapter(ch)}
-                  onArchiveToggle={(ch) => void handleArchiveToggle(ch)}
-                  onRequestDeleteChapter={setDeleteTarget}
-                  onReorderChapters={(draggedId, targetId) =>
-                    void handleReorderChapters(draggedId, targetId)
-                  }
-                  onMoveChapterDelta={(id, delta) =>
-                    void handleMoveChapterDelta(id, delta)
-                  }
-                  onJumpToOutlineItem={handleJumpToOutlineItem}
-                />
+
+            <div className="studio-header-right">
+              {!isMobileViewport && (
+                <>
+                  <button
+                    type="button"
+                    className="studio-icon-btn"
+                    title="Toggle Sidebar Karya"
+                    aria-label="Toggle Sidebar Karya"
+                    onClick={() => setShowSidebar((v) => !v)}
+                  >
+                    <PanelLeft size={16} />
+                  </button>
+                  <button
+                    type="button"
+                    className="studio-icon-btn"
+                    title="Toggle Panel Inspektur"
+                    aria-label="Toggle Panel Inspektur"
+                    onClick={() => setShowInspector((v) => !v)}
+                  >
+                    <PanelRight size={16} />
+                  </button>
+
+                  <button
+                    type="button"
+                    className="studio-btn studio-btn-secondary studio-btn-sm"
+                    title="Simpan draft ke Supabase sekarang (Ctrl+S)"
+                    disabled={!activeChapter || isSaveBusy}
+                    onClick={() => void handleManualSave()}
+                  >
+                    {isSaveBusy ? (
+                      <Loader2 size={14} className="studio-spin" />
+                    ) : (
+                      <Save size={14} />
+                    )}
+                    <span>{isSaveBusy ? 'Menyimpan…' : 'Simpan'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className="studio-btn studio-btn-secondary studio-btn-sm studio-theme-toggle-btn"
+                    title={
+                      studioTheme === 'dark'
+                        ? 'Beralih ke Mode Terang'
+                        : 'Beralih ke Mode Gelap'
+                    }
+                    aria-label={
+                      studioTheme === 'dark'
+                        ? 'Beralih ke Mode Terang'
+                        : 'Beralih ke Mode Gelap'
+                    }
+                    onClick={toggleStudioTheme}
+                  >
+                    {studioTheme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
+                    <span className="studio-hide-xs">
+                      {studioTheme === 'dark' ? 'Terang' : 'Gelap'}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className="studio-btn studio-btn-secondary studio-btn-sm"
+                    disabled={!activeChapter}
+                    onClick={() =>
+                      setViewMode((m) =>
+                        m === 'editor' ? 'preview-chapter' : 'editor',
+                      )
+                    }
+                  >
+                    <Eye size={14} />
+                    <span>{viewMode === 'editor' ? 'Pratinjau' : 'Edit'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className="studio-btn studio-btn-primary studio-btn-sm"
+                    disabled={!activeChapter}
+                    onClick={() => setPublishOpen(true)}
+                  >
+                    <UploadCloud size={14} />
+                    <span>Publikasikan</span>
+                  </button>
+
+                  <Link
+                    to={activeNovel ? `/read/${activeNovel.slug}` : '/'}
+                    className="studio-btn studio-btn-secondary studio-btn-sm"
+                    title="Buka di Reader Publik"
+                  >
+                    <ExternalLink size={13} />
+                    <span className="studio-hide-xs">Reader</span>
+                  </Link>
+
+                  <button
+                    type="button"
+                    className="studio-btn studio-btn-secondary studio-btn-sm"
+                    title={`Keluar (${auth.adminProfile?.email ?? ''})`}
+                    aria-label="Keluar dari Studio Editor"
+                    onClick={() => void auth.signOut()}
+                  >
+                    <LogOut size={14} />
+                    <span className="studio-hide-xs">Keluar</span>
+                  </button>
+                </>
               )}
 
-              <DocumentWorkspaceCanvas
+              {isMobileViewport && (
+                <>
+                  <button
+                    type="button"
+                    className="studio-btn studio-btn-secondary studio-btn-sm"
+                    disabled={!activeChapter}
+                    aria-label="Pratinjau Reader"
+                    onClick={() =>
+                      setViewMode((m) =>
+                        m === 'editor' ? 'preview-chapter' : 'editor',
+                      )
+                    }
+                  >
+                    <Eye size={14} />
+                    <span>{viewMode === 'editor' ? 'Preview' : 'Edit'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="studio-btn studio-btn-primary studio-btn-sm"
+                    disabled={!activeChapter}
+                    onClick={() => setPublishOpen(true)}
+                  >
+                    <UploadCloud size={14} />
+                    <span>Terbit</span>
+                  </button>
+                </>
+              )}
+            </div>
+          </header>
+
+          {viewMode === 'editor' ? (
+            <>
+              <StudioMenuBar
                 editor={editor}
-                chapter={activeChapter}
-                zoom={zoom}
+                viewMode={viewMode}
+                studioTheme={studioTheme}
+                showSidebar={showSidebar}
+                showInspector={showInspector}
                 showRuler={showRuler}
                 marginPreset={marginPreset}
-                onUpdateHeaderField={(field, value) => {
+                findOpen={findOpen}
+                onSetFindOpen={setFindOpen}
+                onBackToHub={() => void handleBackToHub()}
+                onSaveNow={() => void handleManualSave()}
+                onRefreshFromServer={() => void handleManualRefreshFromServer()}
+                onNewChapter={() => void handleNewChapter()}
+                onDuplicateChapter={() => {
+                  if (activeChapter) void handleDuplicateChapter(activeChapter);
+                }}
+                onOpenNewNovel={() => setNewNovelOpen(true)}
+                onOpenWorkSettings={() => {
+                  if (activeNovel) setWorkSettingsTarget(activeNovel);
+                }}
+                onOpenPublishModal={() => setPublishOpen(true)}
+                onToggleTheme={toggleStudioTheme}
+                onToggleSidebar={() => setShowSidebar((v) => !v)}
+                onToggleInspector={() => setShowInspector((v) => !v)}
+                onToggleRuler={() => setShowRuler((v) => !v)}
+                onChangeMarginPreset={(preset) => {
                   if (!activeChapter) return;
                   updateChapterLocalAndQueueSave(activeChapter.id, (prev) => ({
                     ...prev,
-                    [field]: value,
+                    draftMetadata: {
+                      ...prev.draftMetadata,
+                      marginPreset: preset,
+                    },
                   }));
                 }}
+                onChangeViewMode={setViewMode}
+                onInsertBlock={handleInsertBlock}
+                onOpenLinkModal={openLinkModalFromEditor}
+                onOpenWordCountModal={() => setWordCountOpen(true)}
+                onOpenShortcutsModal={() => setShortcutsOpen(true)}
+                onPrint={() => window.print()}
               />
 
-              {showInspector && (
-                <StudioInspectorPanel
-                  novelId={activeNovelId}
-                  chapter={activeChapter}
-                  marginPreset={marginPreset}
-                  onChangeMarginPreset={(preset) => {
-                    if (!activeChapter) return;
-                    updateChapterLocalAndQueueSave(activeChapter.id, (prev) => ({
-                      ...prev,
-                      draftMetadata: {
-                        ...prev.draftMetadata,
-                        marginPreset: preset,
-                      },
-                    }));
-                  }}
-                  onUpdateChapterPatch={(patch) => {
-                    if (!activeChapter) return;
-                    updateChapterLocalAndQueueSave(activeChapter.id, (prev) => ({
-                      ...prev,
-                      ...patch,
-                    }));
-                  }}
-                  onRestoreRevision={(rev) => void handleRestoreRevision(rev)}
-                  onOpenPublishModal={() => setPublishOpen(true)}
-                  onToggleArchive={(ch) => void handleArchiveToggle(ch)}
-                  onInsertAssetToEditor={handleInsertAsset}
+              {!isMobileViewport && (
+                <StudioToolbar
+                  editor={editor}
+                  zoom={zoom}
+                  onChangeZoom={setZoom}
+                  onPrint={() => window.print()}
+                  onOpenLinkModal={openLinkModalFromEditor}
+                  onInsertBlock={handleInsertBlock}
                 />
               )}
-            </div>
+
+              {autosave.conflict && (
+                <ConflictBanner
+                  conflict={autosave.conflict}
+                  onUseServer={autosave.resolveConflictUseServer}
+                  onKeepMine={async () => {
+                    const res = await autosave.resolveConflictKeepMine();
+                    reportSaveResult(res);
+                  }}
+                  onDismiss={autosave.dismissConflict}
+                />
+              )}
+
+              {loadingWorkspace ? (
+                <div className="studio-loading-pane">
+                  <Loader2 size={22} className="studio-spin" />
+                  <span>Memuat naskah karya…</span>
+                </div>
+              ) : (
+                <div className="studio-workspace">
+                  {!isMobileViewport && showSidebar && (
+                    <StudioSidebar
+                      novels={novels}
+                      activeNovelId={activeNovelId}
+                      chapters={chapters}
+                      activeChapterId={activeChapter?.id ?? null}
+                      outline={outline}
+                      onSelectNovel={(id) => void handleSelectNovel(id)}
+                      onOpenNewNovel={() => setNewNovelOpen(true)}
+                      onOpenWorkSettings={() => {
+                        if (activeNovel) setWorkSettingsTarget(activeNovel);
+                      }}
+                      onSelectChapter={(id) => void handleSelectChapter(id)}
+                      onNewChapter={() => void handleNewChapter()}
+                      onDuplicateChapter={(ch) => void handleDuplicateChapter(ch)}
+                      onArchiveToggle={(ch) => void handleArchiveToggle(ch)}
+                      onRequestDeleteChapter={setDeleteTarget}
+                      onReorderChapters={(draggedId, targetId) =>
+                        void handleReorderChapters(draggedId, targetId)
+                      }
+                      onMoveChapterDelta={(id, delta) =>
+                        void handleMoveChapterDelta(id, delta)
+                      }
+                      onJumpToOutlineItem={handleJumpToOutlineItem}
+                    />
+                  )}
+
+                  <DocumentWorkspaceCanvas
+                    editor={editor}
+                    chapter={activeChapter}
+                    zoom={zoom}
+                    showRuler={showRuler}
+                    marginPreset={marginPreset}
+                    onUpdateHeaderField={(field, value) => {
+                      if (!activeChapter) return;
+                      updateChapterLocalAndQueueSave(activeChapter.id, (prev) => ({
+                        ...prev,
+                        [field]: value,
+                      }));
+                    }}
+                  />
+
+                  {!isMobileViewport && showInspector && (
+                    <StudioInspectorPanel
+                      novelId={activeNovelId}
+                      chapter={activeChapter}
+                      marginPreset={marginPreset}
+                      onChangeMarginPreset={(preset) => {
+                        if (!activeChapter) return;
+                        updateChapterLocalAndQueueSave(activeChapter.id, (prev) => ({
+                          ...prev,
+                          draftMetadata: {
+                            ...prev.draftMetadata,
+                            marginPreset: preset,
+                          },
+                        }));
+                      }}
+                      onUpdateChapterPatch={(patch) => {
+                        if (!activeChapter) return;
+                        updateChapterLocalAndQueueSave(activeChapter.id, (prev) => ({
+                          ...prev,
+                          ...patch,
+                        }));
+                      }}
+                      onRestoreRevision={(rev) => void handleRestoreRevision(rev)}
+                      onOpenPublishModal={() => setPublishOpen(true)}
+                      onToggleArchive={(ch) => void handleArchiveToggle(ch)}
+                      onInsertAssetToEditor={handleInsertAsset}
+                    />
+                  )}
+                </div>
+              )}
+
+              <SlashCommandMenu
+                editor={editor}
+                onInsertBlock={handleInsertBlock}
+                keyDownHandlerRef={slashKeyDownRef}
+              />
+
+              {isMobileViewport ? (
+                <StudioMobileDock
+                  activeSheet={mobileSheet}
+                  saveState={autosave.saveState}
+                  hasChapter={Boolean(activeChapter)}
+                  onToggleSheet={toggleMobileSheet}
+                  onManualSave={() => void handleManualSave()}
+                />
+              ) : (
+                <footer className="studio-status-bar">
+                  <div className="studio-status-left">
+                    <span className="tabular-nums">
+                      {metrics.wordCount.toLocaleString('id-ID')} kata
+                    </span>
+                    <span className="studio-sep-dot" aria-hidden="true">
+                      ·
+                    </span>
+                    <span className="tabular-nums">
+                      {metrics.characterCount.toLocaleString('id-ID')} karakter
+                    </span>
+                    <span className="studio-sep-dot" aria-hidden="true">
+                      ·
+                    </span>
+                    <span className="tabular-nums">{metrics.pageCount} halaman</span>
+                  </div>
+                  <div className="studio-status-right">
+                    <span>{auth.adminProfile?.email}</span>
+                    <span className="studio-sep-dot" aria-hidden="true">
+                      ·
+                    </span>
+                    <span className="tabular-nums">{saveStatusText}</span>
+                  </div>
+                </footer>
+              )}
+
+              {isMobileViewport && mobileSheet && (
+                <div
+                  className="studio-mobile-sheet-backdrop"
+                  onClick={() => setMobileSheet(null)}
+                >
+                  <div
+                    className="studio-mobile-sheet"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {mobileSheet === 'chapters' && (
+                      <div className="studio-mobile-sheet-panel">
+                        <div className="studio-mobile-sheet-head">
+                          <h3>Bab &amp; Kerangka Naskah</h3>
+                          <button
+                            type="button"
+                            className="studio-icon-btn studio-mobile-close-btn"
+                            aria-label="Tutup daftar bab"
+                            onClick={() => setMobileSheet(null)}
+                          >
+                            <X size={18} />
+                          </button>
+                        </div>
+                        <StudioSidebar
+                          novels={novels}
+                          activeNovelId={activeNovelId}
+                          chapters={chapters}
+                          activeChapterId={activeChapter?.id ?? null}
+                          outline={outline}
+                          onSelectNovel={(id) => void handleSelectNovel(id)}
+                          onOpenNewNovel={() => {
+                            setMobileSheet(null);
+                            setNewNovelOpen(true);
+                          }}
+                          onOpenWorkSettings={() => {
+                            setMobileSheet(null);
+                            if (activeNovel) setWorkSettingsTarget(activeNovel);
+                          }}
+                          onSelectChapter={(id) => void handleSelectChapter(id)}
+                          onNewChapter={() => void handleNewChapter()}
+                          onDuplicateChapter={(ch) => void handleDuplicateChapter(ch)}
+                          onArchiveToggle={(ch) => void handleArchiveToggle(ch)}
+                          onRequestDeleteChapter={(ch) => {
+                            setMobileSheet(null);
+                            setDeleteTarget(ch);
+                          }}
+                          onReorderChapters={(draggedId, targetId) =>
+                            void handleReorderChapters(draggedId, targetId)
+                          }
+                          onMoveChapterDelta={(id, delta) =>
+                            void handleMoveChapterDelta(id, delta)
+                          }
+                          onJumpToOutlineItem={handleJumpToOutlineItem}
+                        />
+                      </div>
+                    )}
+
+                    {mobileSheet === 'format' && (
+                      <StudioMobileFormatSheet
+                        editor={editor}
+                        onInsertBlock={handleInsertBlock}
+                        onClose={() => setMobileSheet(null)}
+                      />
+                    )}
+
+                    {mobileSheet === 'inspector' && (
+                      <div className="studio-mobile-sheet-panel">
+                        <div className="studio-mobile-sheet-head">
+                          <h3>Pengaturan Bab, Audio &amp; VFX</h3>
+                          <button
+                            type="button"
+                            className="studio-icon-btn studio-mobile-close-btn"
+                            aria-label="Tutup pengaturan bab"
+                            onClick={() => setMobileSheet(null)}
+                          >
+                            <X size={18} />
+                          </button>
+                        </div>
+                        <StudioInspectorPanel
+                          novelId={activeNovelId}
+                          chapter={activeChapter}
+                          marginPreset={marginPreset}
+                          onChangeMarginPreset={(preset) => {
+                            if (!activeChapter) return;
+                            updateChapterLocalAndQueueSave(
+                              activeChapter.id,
+                              (prev) => ({
+                                ...prev,
+                                draftMetadata: {
+                                  ...prev.draftMetadata,
+                                  marginPreset: preset,
+                                },
+                              }),
+                            );
+                          }}
+                          onUpdateChapterPatch={(patch) => {
+                            if (!activeChapter) return;
+                            updateChapterLocalAndQueueSave(
+                              activeChapter.id,
+                              (prev) => ({
+                                ...prev,
+                                ...patch,
+                              }),
+                            );
+                          }}
+                          onRestoreRevision={(rev) =>
+                            void handleRestoreRevision(rev)
+                          }
+                          onOpenPublishModal={() => {
+                            setMobileSheet(null);
+                            setPublishOpen(true);
+                          }}
+                          onToggleArchive={(ch) => void handleArchiveToggle(ch)}
+                          onInsertAssetToEditor={handleInsertAsset}
+                        />
+                      </div>
+                    )}
+
+                    {mobileSheet === 'more' && (
+                      <StudioMobileMoreSheet
+                        activeNovel={activeNovel}
+                        studioTheme={studioTheme}
+                        hasChapter={Boolean(activeChapter)}
+                        wordCount={metrics.wordCount}
+                        onPublish={() => setPublishOpen(true)}
+                        onPreview={() => setViewMode('preview-chapter')}
+                        onFindReplace={() => setFindOpen(true)}
+                        onRefreshFromServer={() =>
+                          void handleManualRefreshFromServer()
+                        }
+                        onOpenWorkSettings={() => {
+                          if (activeNovel) setWorkSettingsTarget(activeNovel);
+                        }}
+                        onOpenWordCount={() => setWordCountOpen(true)}
+                        onOpenShortcuts={() => setShortcutsOpen(true)}
+                        onToggleTheme={toggleStudioTheme}
+                        onBackToHub={() => void handleBackToHub()}
+                        onSignOut={() => void auth.signOut()}
+                        onClose={() => setMobileSheet(null)}
+                      />
+                    )}
+                  </div>
+                </div>
+              )}
+            </>
+          ) : (
+            activeChapter && (
+              <StudioLivePreview
+                mode={viewMode}
+                chapters={chapters}
+                activeChapter={activeChapter}
+                initialTheme={studioTheme}
+                onExitPreview={() => setViewMode('editor')}
+                onChangeMode={setViewMode}
+              />
+            )
           )}
 
-          <SlashCommandMenu
-            editor={editor}
-            onInsertBlock={handleInsertBlock}
-            keyDownHandlerRef={slashKeyDownRef}
-          />
-
-          <footer className="studio-status-bar">
-            <div className="studio-status-left">
-              <span className="tabular-nums">{metrics.wordCount.toLocaleString('id-ID')} kata</span>
-              <span className="studio-sep-dot" aria-hidden="true">
-                ·
-              </span>
-              <span className="tabular-nums">
-                {metrics.characterCount.toLocaleString('id-ID')} karakter
-              </span>
-              <span className="studio-sep-dot" aria-hidden="true">
-                ·
-              </span>
-              <span className="tabular-nums">{metrics.pageCount} halaman</span>
-            </div>
-            <div className="studio-status-right">
-              <span>{auth.adminProfile?.email}</span>
-              <span className="studio-sep-dot" aria-hidden="true">
-                ·
-              </span>
-              <span>{saveStatusText}</span>
-            </div>
-          </footer>
-        </>
-      ) : (
-        activeChapter && (
-          <StudioLivePreview
-            mode={viewMode}
-            chapters={chapters}
-            activeChapter={activeChapter}
-            initialTheme={studioTheme}
-            onExitPreview={() => setViewMode('editor')}
-            onChangeMode={setViewMode}
-          />
-        )
-      )}
-
-      {/* Test VFX overlay for Studio cues */}
-      {testVfx && (
-        <VisualEffectsLayer
-          chapterId={`studio-vfx-${testVfx.key}`}
-          effect={testVfx.effect}
-          triggerMode="immediate"
-          durationMs={testVfx.durationMs}
-        />
+          {/* Test VFX overlay for Editor mode (Live Preview mounts its own isolated layer) */}
+          {viewMode === 'editor' && testVfx && (
+            <VisualEffectsLayer
+              chapterId={`studio-vfx-${testVfx.key}`}
+              effect={testVfx.effect}
+              triggerMode="immediate"
+              durationMs={testVfx.durationMs}
+            />
+          )}
+        </div>
       )}
 
       {notice && (
@@ -1221,12 +1622,12 @@ export function NovelStudioPage() {
       />
 
       <WorkSettingsModal
-        open={workSettingsOpen}
-        novel={activeNovel}
+        open={Boolean(workSettingsTarget)}
+        novel={workSettingsTarget}
         busy={savingWorkSettings}
         onSaveWork={handleSaveWorkSettings}
         onDeleteWork={handleDeleteWork}
-        onClose={() => setWorkSettingsOpen(false)}
+        onClose={() => setWorkSettingsTarget(null)}
       />
 
       <InsertLinkModal
@@ -1253,7 +1654,7 @@ export function NovelStudioPage() {
         open={shortcutsOpen}
         onClose={() => setShortcutsOpen(false)}
       />
-    </div>
+    </>
   );
 }
 

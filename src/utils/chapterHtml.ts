@@ -33,16 +33,20 @@ export function stripHtmlToText(html: string): string {
 
 export function buildChapterHtml(ch: Chapter): string {
   const hasDropcap = !ch.isPrologue && !ch.isEnding;
+  const safeNum = escapeHtml(ch.num || '');
+  const safeTitle = escapeHtml(ch.title || '');
+  const safeSetting = ch.setting ? escapeHtml(ch.setting.trim()) : '';
+  const safeFeeling = ch.feeling ? escapeHtml(ch.feeling.trim()) : '';
 
   let contentHtml = `
         <div class="ch-header">
-          <div class="ch-num">${ch.num}</div>
-          <h1 class="ch-title">${ch.title}</h1>
-          <div class="ch-setting">📍 ${ch.setting}</div>
+          <div class="ch-num">${safeNum}</div>
+          <h1 class="ch-title">${safeTitle}</h1>
+          ${safeSetting ? `<div class="ch-setting">📍 ${safeSetting}</div>` : ''}
         </div>
       `;
-  if (ch.feeling) {
-    contentHtml += `<span class="feeling-badge">Suasana: ${ch.feeling}</span>`;
+  if (safeFeeling) {
+    contentHtml += `<span class="feeling-badge">Suasana: ${safeFeeling}</span>`;
   }
   if (ch.isEnding) {
     contentHtml += ch.content;
